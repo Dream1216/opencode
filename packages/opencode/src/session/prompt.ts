@@ -1407,22 +1407,19 @@ const layer = Layer.effect(
       yield* workerQueue.fail(claim, Cause.pretty(exit.cause))
     })
 
-    if (workerQueue.consumerMode === "legacy-prompt") {
-      yield* Effect.forkScoped(
-        Effect.forever(
-          Effect.gen(function* () {
-            const claim = yield* workerQueue.claim()
-            if (claim === undefined) return
-            yield* processQueueClaim(claim)
-          }).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logError(`PostgreSQL legacy Prompt queue consumer: ${Cause.pretty(cause)}`),
-            ),
-            Effect.andThen(Effect.sleep(workerQueue.pollIntervalMs)),
-          ),
-        ),
+    const consumeQueuedGeneration = Effect.fn("SessionPrompt.consumeQueuedGeneration")(function* (
+      sessionID: SessionID,
+      generation: number,
+    ) {
+      const consume = Effect.forever(
+        Effect.gen(function* () {
+          const claim = yield* workerQueue.claim(sessionID)
+          if (claim !== undefined) yield* processQueueClaim(claim)
+          yield* Effect.sleep(workerQueue.pollIntervalMs)
+        }),
       )
-    }
+      yield* Effect.raceFirst(workerQueue.awaitCompletion(sessionID, generation), consume)
+    })
 
     const loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.loop")(function* (
       input: LoopInput,
@@ -1430,7 +1427,7 @@ const layer = Layer.effect(
       if (workerQueue.consumerMode === "legacy-prompt") {
         const generation = yield* workerQueue.enqueue(input.sessionID, "resume")
         if (generation > 0) {
-          yield* workerQueue.awaitCompletion(input.sessionID, generation)
+          yield* consumeQueuedGeneration(input.sessionID, generation)
           return yield* lastAssistant(input.sessionID)
         }
       }

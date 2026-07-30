@@ -27,7 +27,7 @@ export type Interface = {
     sessionID: SessionSchema.ID,
     reason: Exclude<WorkerJobReason, "recovery">,
   ) => Effect.Effect<number>
-  readonly claim: () => Effect.Effect<WorkerJobClaim | undefined>
+  readonly claim: (sessionID?: SessionSchema.ID) => Effect.Effect<WorkerJobClaim | undefined>
   readonly heartbeat: (claim: WorkerJobClaim) => Effect.Effect<WorkerJobClaim>
   readonly complete: (claim: WorkerJobClaim) => Effect.Effect<void>
   readonly fail: (claim: WorkerJobClaim, error: string) => Effect.Effect<void>
@@ -132,8 +132,15 @@ export function layerFromEnv(
                   ),
             ),
           ),
-        claim: () =>
+        claim: (sessionID) =>
           Effect.gen(function* () {
+            if (sessionID !== undefined) {
+              const tenant = yield* tenantFor(sessionID)
+              if (tenant === undefined) return
+              return yield* db(() =>
+                claimNextWorkerJob(sql, { tenant, ownerID, claimMs, runID: sessionID }),
+              )
+            }
             for (let offset = 0; offset < settings.tenants.length; offset++) {
               const index = (claimCursor + offset) % settings.tenants.length
               const tenant = settings.tenants[index]!
