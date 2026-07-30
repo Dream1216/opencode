@@ -26,6 +26,7 @@ export const tenantScopedTables = [
   "worker_lease",
   "worker_effect",
   "worker_job",
+  "workspace_recovery_owner",
   "team_member",
   "worker_queue_api_nonce",
   "worker_queue_action",
@@ -221,6 +222,14 @@ export const migrations: readonly SqlMigration[] = [
       "create index if not exists worker_job_workspace_claim_idx on worker_job (tenant_id, workspace_directory, status, available_at, claim_expires_at, time_created)",
     ],
   },
+  {
+    id: "p7_7_5_001_workspace_recovery_owner",
+    statements: [
+      "create table workspace_recovery_owner (tenant_id text not null references tenant(id) on delete cascade, workspace_id text not null, workspace_directory text not null, owner_id text not null, epoch bigint not null check (epoch > 0), status text not null check (status in ('active', 'released')), lease_expires_at bigint not null, heartbeat_at bigint not null, time_acquired bigint not null, time_updated bigint not null, time_released bigint, primary key (tenant_id, workspace_id))",
+      "create index workspace_recovery_owner_status_expiry_idx on workspace_recovery_owner (tenant_id, status, lease_expires_at, workspace_id)",
+      ...tenantPolicy("workspace_recovery_owner"),
+    ],
+  },
 ]
 
 export function allStatements() {
@@ -241,6 +250,7 @@ export function validateDraft() {
     "worker_lease",
     "worker_effect",
     "worker_job",
+    "workspace_recovery_owner",
     "fencing_token",
     "requested_generation",
     "claim_token",

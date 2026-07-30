@@ -6,6 +6,14 @@ import {
   workerRecoveryPartitionID,
   type WorkerRecoveryPartition,
 } from "@opencode-ai/core/session/worker-recovery-governance"
+import {
+  makePostgresWorkspaceRecoveryOwnershipStore,
+  type WorkspaceRecoveryOwnershipLease,
+} from "@opencode-ai/core/database/postgres/workspace-recovery-ownership"
+import {
+  observeWorkerQueueRecoveryOwnership,
+  recordWorkerQueueRecoveryOwnershipAttempt,
+} from "@opencode-ai/core/database/postgres/worker-queue-telemetry"
 import { Context, Effect, Layer } from "effect"
 import path from "node:path"
 import { InstanceStore } from "@/project/instance-store"
@@ -13,6 +21,7 @@ import { SessionPrompt } from "./prompt"
 
 export interface Interface {
   readonly enabled: boolean
+  readonly ownershipEnabled: boolean
   readonly workspaces: readonly string[]
   readonly partitions: readonly WorkerRecoveryPartition[]
 }
@@ -23,9 +32,22 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const settings = settingsFromEnv(process.env)
-    if (settings === undefined) return Service.of({ enabled: false, workspaces: [], partitions: [] })
+    if (settings === undefined) {
+      return Service.of({ enabled: false, ownershipEnabled: false, workspaces: [], partitions: [] })
+    }
     const store = yield* InstanceStore.Service
     const prompt = yield* SessionPrompt.Service
+    const ownership = settings.ownership.enabled
+      ? yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            makePostgresWorkspaceRecoveryOwnershipStore({
+              url: settings.ownership.databaseURL!,
+              max: settings.ownership.databaseMax,
+            }),
+          ),
+          (value) => Effect.promise(() => value.close()).pipe(Effect.catchCause(() => Effect.void)),
+        )
+      : undefined
     yield* Effect.forEach(
       settings.partitions,
       (partition) =>
@@ -40,10 +62,114 @@ const layer = Layer.effect(
             ).pipe(Effect.orDie),
             (value) => Effect.promise(() => value.close()).pipe(Effect.catchCause(() => Effect.void)),
           )
+          const workspaceID = workerRecoveryPartitionID(partition)
+          const ownershipLabels = {
+            tenantID: partition.tenantID,
+            ...(settings.teamID === undefined ? {} : { teamID: settings.teamID }),
+            scope: settings.governance.metricsScope,
+            workspaceID,
+            instanceID: settings.instanceID,
+          }
+          let ownershipLease: WorkspaceRecoveryOwnershipLease | undefined
+          if (ownership !== undefined) {
+            observeWorkerQueueRecoveryOwnership({
+              ...ownershipLabels,
+              held: false,
+              epoch: 0,
+              leaseExpiresAt: 0,
+            })
+            yield* Effect.addFinalizer(() => {
+              const lease = ownershipLease
+              ownershipLease = undefined
+              if (lease === undefined) return Effect.void
+              return Effect.tryPromise(() => ownership.release(lease)).pipe(
+                Effect.tap((released) =>
+                  Effect.sync(() => {
+                    if (released) {
+                      recordWorkerQueueRecoveryOwnershipAttempt({
+                        ...ownershipLabels,
+                        outcome: "released",
+                      })
+                    }
+                    observeWorkerQueueRecoveryOwnership({
+                      ...ownershipLabels,
+                      held: false,
+                      epoch: lease.epoch,
+                      leaseExpiresAt: lease.leaseExpiresAt,
+                    })
+                  }),
+                ),
+                Effect.catchCause(() => Effect.void),
+                Effect.asVoid,
+              )
+            })
+            yield* Effect.forkScoped(
+              Effect.forever(
+                Effect.gen(function* () {
+                  yield* Effect.sleep(settings.ownership.heartbeatMs)
+                  const lease = ownershipLease
+                  if (lease === undefined) return
+                  const result = yield* Effect.tryPromise(() =>
+                    ownership.renew(lease, settings.ownership.leaseMs),
+                  ).pipe(
+                    Effect.map((value) => ({ ok: true as const, value })),
+                    Effect.catch((error) =>
+                      Effect.logError("PostgreSQL workspace ownership heartbeat failed", {
+                        tenantID: partition.tenantID,
+                        workspaceID,
+                        instanceID: settings.instanceID,
+                        error,
+                      }).pipe(Effect.as({ ok: false as const })),
+                    ),
+                  )
+                  if (!result.ok) {
+                    ownershipLease = undefined
+                    recordWorkerQueueRecoveryOwnershipAttempt({
+                      ...ownershipLabels,
+                      outcome: "store_error",
+                    })
+                    observeWorkerQueueRecoveryOwnership({
+                      ...ownershipLabels,
+                      held: false,
+                      epoch: lease.epoch,
+                      leaseExpiresAt: lease.leaseExpiresAt,
+                    })
+                    return
+                  }
+                  if (result.value === undefined) {
+                    ownershipLease = undefined
+                    recordWorkerQueueRecoveryOwnershipAttempt({
+                      ...ownershipLabels,
+                      outcome: "lost",
+                    })
+                    observeWorkerQueueRecoveryOwnership({
+                      ...ownershipLabels,
+                      held: false,
+                      epoch: lease.epoch,
+                      leaseExpiresAt: lease.leaseExpiresAt,
+                    })
+                    return
+                  }
+                  ownershipLease = result.value
+                  recordWorkerQueueRecoveryOwnershipAttempt({
+                    ...ownershipLabels,
+                    outcome: "renewed",
+                  })
+                  observeWorkerQueueRecoveryOwnership({
+                    ...ownershipLabels,
+                    held: true,
+                    epoch: result.value.epoch,
+                    leaseExpiresAt: result.value.leaseExpiresAt,
+                  })
+                }),
+              ),
+            )
+          }
           yield* Effect.logInfo("starting governed PostgreSQL workspace recovery consumer", {
             tenantID: partition.tenantID,
-            workspaceID: workerRecoveryPartitionID(partition),
+            workspaceID,
             instanceID: settings.instanceID,
+            ownershipEnabled: settings.ownership.enabled,
           })
           yield* Effect.forkScoped(
             Effect.forever(
@@ -52,6 +178,63 @@ const layer = Layer.effect(
                 if (!admission.allowed) {
                   yield* Effect.sleep(settings.retryMs)
                   return
+                }
+                if (ownership !== undefined && ownershipLease === undefined) {
+                  const result = yield* Effect.tryPromise(() =>
+                    ownership.acquire({
+                      tenant: {
+                        tenantID: partition.tenantID,
+                        ...(settings.teamID === undefined ? {} : { teamID: settings.teamID }),
+                      },
+                      workspaceID,
+                      workspaceDirectory: partition.workspaceDirectory,
+                      ownerID: settings.instanceID,
+                      leaseMs: settings.ownership.leaseMs,
+                    }),
+                  ).pipe(
+                    Effect.map((value) => ({ ok: true as const, value })),
+                    Effect.catch((error) =>
+                      Effect.logError("PostgreSQL workspace ownership acquisition failed", {
+                        tenantID: partition.tenantID,
+                        workspaceID,
+                        instanceID: settings.instanceID,
+                        error,
+                      }).pipe(Effect.as({ ok: false as const })),
+                    ),
+                  )
+                  if (!result.ok) {
+                    recordWorkerQueueRecoveryOwnershipAttempt({
+                      ...ownershipLabels,
+                      outcome: "store_error",
+                    })
+                    yield* Effect.sleep(settings.retryMs)
+                    return
+                  }
+                  if (!result.value.acquired) {
+                    recordWorkerQueueRecoveryOwnershipAttempt({
+                      ...ownershipLabels,
+                      outcome: "contended",
+                    })
+                    observeWorkerQueueRecoveryOwnership({
+                      ...ownershipLabels,
+                      held: false,
+                      epoch: result.value.current.epoch,
+                      leaseExpiresAt: result.value.current.leaseExpiresAt,
+                    })
+                    yield* Effect.sleep(settings.retryMs)
+                    return
+                  }
+                  ownershipLease = result.value.lease
+                  recordWorkerQueueRecoveryOwnershipAttempt({
+                    ...ownershipLabels,
+                    outcome: result.value.disposition,
+                  })
+                  observeWorkerQueueRecoveryOwnership({
+                    ...ownershipLabels,
+                    held: true,
+                    epoch: result.value.lease.epoch,
+                    leaseExpiresAt: result.value.lease.leaseExpiresAt,
+                  })
                 }
                 const result = yield* store
                   .provide(
@@ -62,7 +245,7 @@ const layer = Layer.effect(
                     Effect.catchCause((cause) =>
                       Effect.logError("PostgreSQL workspace recovery attempt failed", {
                         tenantID: partition.tenantID,
-                        workspaceID: workerRecoveryPartitionID(partition),
+                        workspaceID,
                         cause,
                       }).pipe(Effect.as({ status: "failed" as const })),
                     ),
@@ -77,6 +260,7 @@ const layer = Layer.effect(
     )
     return Service.of({
       enabled: true,
+      ownershipEnabled: settings.ownership.enabled,
       workspaces: settings.workspaces,
       partitions: settings.partitions,
     })
@@ -124,6 +308,30 @@ export function settingsFromEnv(env: NodeJS.ProcessEnv) {
   }
   const parsedRetryMs = Number(env.OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_RETRY_MS ?? 1_000)
   const retryMs = Number.isFinite(parsedRetryMs) && parsedRetryMs > 0 ? parsedRetryMs : 1_000
+  const ownershipFlag = env.OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_ENABLED
+  if (ownershipFlag !== undefined && ownershipFlag !== "0" && ownershipFlag !== "1") {
+    throw new Error("Workspace recovery ownership enabled flag must be 0 or 1")
+  }
+  const ownershipEnabled = ownershipFlag === "1"
+  const ownershipDatabaseURL =
+    env.OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_DATABASE_URL?.trim() ||
+    env.OPENCODE_DATABASE_URL?.trim()
+  if (ownershipEnabled && !ownershipDatabaseURL) {
+    throw new Error("Workspace recovery ownership requires OPENCODE_DATABASE_URL")
+  }
+  const ownershipLeaseMs = positiveInteger(
+    env.OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_LEASE_MS,
+    30_000,
+    "Workspace recovery ownership lease",
+  )
+  const ownershipHeartbeatMs = positiveInteger(
+    env.OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_HEARTBEAT_MS,
+    5_000,
+    "Workspace recovery ownership heartbeat",
+  )
+  if (ownershipHeartbeatMs >= ownershipLeaseMs) {
+    throw new Error("Workspace recovery ownership heartbeat must be shorter than the lease")
+  }
   return {
     workspaces,
     tenants,
@@ -132,7 +340,27 @@ export function settingsFromEnv(env: NodeJS.ProcessEnv) {
     governance: workerRecoveryGovernanceConfig(env),
     instanceID: env.OPENCODE_WORKER_ID?.trim() || `worker-${process.pid}`,
     teamID: env.OPENCODE_TEAM_ID?.trim() || undefined,
+    ownership: {
+      enabled: ownershipEnabled,
+      databaseURL: ownershipDatabaseURL,
+      databaseMax: positiveInteger(
+        env.OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_DATABASE_MAX,
+        2,
+        "Workspace recovery ownership database max",
+      ),
+      leaseMs: ownershipLeaseMs,
+      heartbeatMs: ownershipHeartbeatMs,
+    },
   }
+}
+
+function positiveInteger(raw: string | undefined, fallback: number, label: string) {
+  if (raw === undefined || raw.trim() === "") return fallback
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer`)
+  }
+  return value
 }
 
 export const node = LayerNode.make({

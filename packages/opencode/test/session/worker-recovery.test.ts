@@ -30,6 +30,11 @@ describe("SessionWorkerRecovery settings", () => {
       ],
       retryMs: 1_000,
       instanceID: "worker-a",
+      ownership: {
+        enabled: false,
+        leaseMs: 30_000,
+        heartbeatMs: 5_000,
+      },
     })
   })
 
@@ -72,5 +77,44 @@ describe("SessionWorkerRecovery settings", () => {
         OPENCODE_DATABASE_URL: "",
       })?.governance.invalidReason,
     ).toContain("RECOVERY_SAMPLE_RATE")
+  })
+
+  test("enables PostgreSQL workspace ownership with bounded heartbeat settings", () => {
+    expect(
+      settingsFromEnv({
+        ...enabled,
+        OPENCODE_POSTGRES_WORKER_QUEUE_WORKSPACES: "/tmp/alpha",
+        OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_ENABLED: "1",
+        OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_LEASE_MS: "12000",
+        OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_HEARTBEAT_MS: "3000",
+        OPENCODE_DATABASE_URL: "postgresql://localhost/opencode",
+      })?.ownership,
+    ).toEqual({
+      enabled: true,
+      databaseURL: "postgresql://localhost/opencode",
+      databaseMax: 2,
+      leaseMs: 12_000,
+      heartbeatMs: 3_000,
+    })
+  })
+
+  test("fails closed when ownership database or heartbeat settings are invalid", () => {
+    expect(() =>
+      settingsFromEnv({
+        ...enabled,
+        OPENCODE_POSTGRES_WORKER_QUEUE_WORKSPACES: "/tmp/alpha",
+        OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_ENABLED: "1",
+      }),
+    ).toThrow("requires OPENCODE_DATABASE_URL")
+    expect(() =>
+      settingsFromEnv({
+        ...enabled,
+        OPENCODE_POSTGRES_WORKER_QUEUE_WORKSPACES: "/tmp/alpha",
+        OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_ENABLED: "1",
+        OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_LEASE_MS: "5000",
+        OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_OWNERSHIP_HEARTBEAT_MS: "5000",
+        OPENCODE_DATABASE_URL: "postgresql://localhost/opencode",
+      }),
+    ).toThrow("heartbeat must be shorter than the lease")
   })
 })

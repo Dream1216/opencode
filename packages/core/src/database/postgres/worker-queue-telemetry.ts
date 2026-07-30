@@ -21,6 +21,15 @@ export type WorkerQueueRecoveryOutcome =
   | "config_error"
   | "store_error"
 
+export type WorkerQueueRecoveryOwnershipOutcome =
+  | "acquired"
+  | "renewed"
+  | "takeover"
+  | "contended"
+  | "released"
+  | "lost"
+  | "store_error"
+
 type Snapshot = {
   readonly readiness: WorkerQueueReadiness
   readonly labels: WorkerQueueTelemetryLabels
@@ -37,9 +46,18 @@ type RecoverySnapshot = {
   readonly attempts: Record<WorkerQueueRecoveryOutcome, number>
 }
 
+type RecoveryOwnershipSnapshot = {
+  readonly labels: WorkerQueueRecoveryTelemetryLabels
+  readonly held: boolean
+  readonly epoch: number
+  readonly leaseExpiresAt: number
+  readonly attempts: Record<WorkerQueueRecoveryOwnershipOutcome, number>
+}
+
 const meter = metrics.getMeter("opencode.worker-queue", "1.0.0")
 const snapshots = new Map<string, Snapshot>()
 const recoverySnapshots = new Map<string, RecoverySnapshot>()
+const recoveryOwnershipSnapshots = new Map<string, RecoveryOwnershipSnapshot>()
 const defaultInstruments = registerWorkerQueueTelemetry(meter)
 
 export function registerWorkerQueueTelemetry(target: Meter) {
@@ -76,6 +94,15 @@ export function registerWorkerQueueTelemetry(target: Meter) {
   })
   const recoveryBreakerSamples = target.createObservableGauge("opencode.worker_queue.recovery_breaker_samples", {
     description: "Samples in the shared recovery breaker window",
+  })
+  const recoveryOwnershipAttempts = target.createCounter("opencode.worker_queue.recovery_ownership_attempts", {
+    description: "Workspace recovery ownership operations by outcome",
+  })
+  const recoveryOwnerHeld = target.createObservableGauge("opencode.worker_queue.recovery_owner_held", {
+    description: "Whether this instance currently holds the workspace recovery ownership lease",
+  })
+  const recoveryOwnershipEpoch = target.createObservableGauge("opencode.worker_queue.recovery_ownership_epoch", {
+    description: "Workspace recovery ownership epoch observed by this instance",
   })
 
   jobs.addCallback((result) => {
@@ -126,7 +153,17 @@ export function registerWorkerQueueTelemetry(target: Meter) {
       result.observe(snapshot.breaker.sampleCount, recoveryLabels(snapshot.labels))
     }
   })
-  return { operatorActions, recoveryAttempts }
+  recoveryOwnerHeld.addCallback((result) => {
+    for (const snapshot of recoveryOwnershipSnapshots.values()) {
+      result.observe(snapshot.held ? 1 : 0, recoveryLabels(snapshot.labels))
+    }
+  })
+  recoveryOwnershipEpoch.addCallback((result) => {
+    for (const snapshot of recoveryOwnershipSnapshots.values()) {
+      result.observe(snapshot.epoch, recoveryLabels(snapshot.labels))
+    }
+  })
+  return { operatorActions, recoveryAttempts, recoveryOwnershipAttempts }
 }
 
 export function observeWorkerQueue(readiness: WorkerQueueReadiness, input: WorkerQueueTelemetryLabels) {
@@ -171,6 +208,43 @@ export function recordWorkerQueueRecoveryAttempt(
   current.attempts[input.outcome]++
   recoverySnapshots.set(recoveryKey(input), current)
   defaultInstruments.recoveryAttempts.add(1, {
+    ...recoveryLabels(input),
+    outcome: input.outcome,
+  })
+}
+
+export function observeWorkerQueueRecoveryOwnership(
+  input: WorkerQueueRecoveryTelemetryLabels & {
+    readonly held: boolean
+    readonly epoch: number
+    readonly leaseExpiresAt: number
+  },
+) {
+  const current = recoveryOwnershipSnapshots.get(recoveryKey(input))
+  recoveryOwnershipSnapshots.set(recoveryKey(input), {
+    labels: input,
+    held: input.held,
+    epoch: input.epoch,
+    leaseExpiresAt: input.leaseExpiresAt,
+    attempts: current?.attempts ?? emptyRecoveryOwnershipAttempts(),
+  })
+}
+
+export function recordWorkerQueueRecoveryOwnershipAttempt(
+  input: WorkerQueueRecoveryTelemetryLabels & {
+    readonly outcome: WorkerQueueRecoveryOwnershipOutcome
+  },
+) {
+  const current = recoveryOwnershipSnapshots.get(recoveryKey(input)) ?? {
+    labels: input,
+    held: false,
+    epoch: 0,
+    leaseExpiresAt: 0,
+    attempts: emptyRecoveryOwnershipAttempts(),
+  }
+  current.attempts[input.outcome]++
+  recoveryOwnershipSnapshots.set(recoveryKey(input), current)
+  defaultInstruments.recoveryOwnershipAttempts.add(1, {
     ...recoveryLabels(input),
     outcome: input.outcome,
   })
@@ -258,6 +332,38 @@ export function renderWorkerQueueRecoveryPrometheus(input: WorkerQueueTelemetryL
       `opencode_worker_queue_recovery_breaker_samples${recoveryPrometheusLabels(snapshot.labels)} ${snapshot.breaker.sampleCount}`,
     )
   }
+  const ownership = [...recoveryOwnershipSnapshots.values()].filter(
+    (snapshot) => snapshot.labels.tenantID === input.tenantID && snapshot.labels.teamID === input.teamID,
+  )
+  lines.push(
+    "# HELP opencode_worker_queue_recovery_ownership_attempts_total Workspace ownership operations by outcome.",
+    "# TYPE opencode_worker_queue_recovery_ownership_attempts_total counter",
+  )
+  for (const snapshot of ownership) {
+    for (const [outcome, value] of Object.entries(snapshot.attempts)) {
+      lines.push(
+        `opencode_worker_queue_recovery_ownership_attempts_total${recoveryPrometheusLabels(snapshot.labels, outcome)} ${value}`,
+      )
+    }
+  }
+  lines.push(
+    "# HELP opencode_worker_queue_recovery_owner_held Whether this instance holds the workspace owner lease.",
+    "# TYPE opencode_worker_queue_recovery_owner_held gauge",
+  )
+  for (const snapshot of ownership) {
+    lines.push(
+      `opencode_worker_queue_recovery_owner_held${recoveryPrometheusLabels(snapshot.labels)} ${snapshot.held ? 1 : 0}`,
+    )
+  }
+  lines.push(
+    "# HELP opencode_worker_queue_recovery_ownership_epoch Workspace ownership fencing epoch.",
+    "# TYPE opencode_worker_queue_recovery_ownership_epoch gauge",
+  )
+  for (const snapshot of ownership) {
+    lines.push(
+      `opencode_worker_queue_recovery_ownership_epoch${recoveryPrometheusLabels(snapshot.labels)} ${snapshot.epoch}`,
+    )
+  }
   return lines.join("\n")
 }
 
@@ -271,6 +377,7 @@ export function workerQueueRecoveryTelemetrySnapshot(input: WorkerQueueRecoveryT
 
 export function resetWorkerQueueRecoveryTelemetry() {
   recoverySnapshots.clear()
+  recoveryOwnershipSnapshots.clear()
 }
 
 function key(input: WorkerQueueTelemetryLabels) {
@@ -323,6 +430,18 @@ function emptyRecoveryAttempts(): Record<WorkerQueueRecoveryOutcome, number> {
     sampled_out: 0,
     breaker_open: 0,
     config_error: 0,
+    store_error: 0,
+  }
+}
+
+function emptyRecoveryOwnershipAttempts(): Record<WorkerQueueRecoveryOwnershipOutcome, number> {
+  return {
+    acquired: 0,
+    renewed: 0,
+    takeover: 0,
+    contended: 0,
+    released: 0,
+    lost: 0,
     store_error: 0,
   }
 }
