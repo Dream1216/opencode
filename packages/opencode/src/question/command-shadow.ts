@@ -1,6 +1,7 @@
 export * as QuestionCommandShadow from "./command-shadow"
 
 import { QuestionCommandGateway } from "@opencode-ai/core/question-command-gateway"
+import { makeClient } from "@opencode-ai/core/database/postgres/client"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Question as QuestionV2 } from "@opencode-ai/schema/question"
 import { QuestionV1 } from "@opencode-ai/schema/question-v1"
@@ -9,6 +10,17 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 
 export type Operation = "ask" | "reply" | "reject"
 export type CommandStatus = "appended" | "idempotent"
+export type StoreConfig =
+  | {
+      readonly backend: "memory"
+    }
+  | {
+      readonly backend: "postgres"
+      readonly url: string
+      readonly tenantID: string
+      readonly actorID?: string
+      readonly poolMax: number
+    }
 
 export interface Comparison {
   readonly operation: Operation
@@ -73,8 +85,13 @@ export const layer = Layer.effect(
       })
     }
 
-    const store = new MemoryStore()
-    const gateway = QuestionCommandGateway.make(store, { maxAttempts: 8 })
+    const store = yield* Effect.promise(() => makeStore())
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(() => store.close()).pipe(
+        Effect.ignoreCause({ log: "Warn", message: "Question Command Gateway shadow Store close failed" }),
+      ),
+    )
+    const gateway = store.gateway
     const counters = {
       seeded: 0,
       compared: 0,
@@ -198,6 +215,71 @@ export const node = LayerNode.make({
   layer,
   deps: [RuntimeFlags.node],
 })
+
+export function storeConfig(env: NodeJS.ProcessEnv = process.env): StoreConfig {
+  const backend = env.OPENCODE_QUESTION_SHADOW_STORE_BACKEND?.trim().toLowerCase() || "memory"
+  if (backend === "memory") return { backend }
+  if (backend !== "postgres") {
+    throw new Error("OPENCODE_QUESTION_SHADOW_STORE_BACKEND must be memory or postgres")
+  }
+  const url =
+    env.OPENCODE_QUESTION_SHADOW_STORE_DATABASE_URL?.trim() ||
+    env.OPENCODE_DATABASE_URL?.trim()
+  if (!url) {
+    throw new Error(
+      "PostgreSQL Question shadow Store requires OPENCODE_QUESTION_SHADOW_STORE_DATABASE_URL or OPENCODE_DATABASE_URL",
+    )
+  }
+  const poolMax = Number(env.OPENCODE_QUESTION_SHADOW_STORE_DATABASE_MAX ?? 2)
+  if (!Number.isSafeInteger(poolMax) || poolMax < 1 || poolMax > 32) {
+    throw new Error("OPENCODE_QUESTION_SHADOW_STORE_DATABASE_MAX must be an integer between 1 and 32")
+  }
+  const actorID = env.OPENCODE_QUESTION_SHADOW_STORE_ACTOR_ID?.trim()
+  return {
+    backend,
+    url,
+    tenantID:
+      env.OPENCODE_QUESTION_SHADOW_STORE_TENANT_ID?.trim() ||
+      "tenant_question_shadow_global",
+    ...(actorID ? { actorID } : {}),
+    poolMax,
+  }
+}
+
+async function makeStore() {
+  const config = storeConfig()
+  if (config.backend === "memory") {
+    return {
+      gateway: QuestionCommandGateway.make(new MemoryStore(), { maxAttempts: 8 }),
+      close: async () => {},
+    }
+  }
+
+  const sql = makeClient({ url: config.url, max: config.poolMax })
+  try {
+    const now = Date.now()
+    await sql`
+      insert into tenant (id, name, time_created, time_updated)
+      values (${config.tenantID}, 'Question shadow global tenant', ${now}, ${now})
+      on conflict (id) do update set time_updated = excluded.time_updated
+    `
+    return {
+      gateway: QuestionCommandGateway.makePostgres({
+        sql,
+        tenant: {
+          tenantID: config.tenantID,
+          ...(config.actorID ? { actorID: config.actorID } : {}),
+        },
+        ownerID: `question-shadow:${process.pid}`,
+        maxAttempts: 8,
+      }),
+      close: () => sql.end({ timeout: 5 }),
+    }
+  } catch (error) {
+    await sql.end({ timeout: 5 })
+    throw error
+  }
+}
 
 class MemoryStore implements QuestionCommandGateway.Store {
   private readonly records = new Map<QuestionV2.ID, QuestionCommandGateway.EventRecord[]>()

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-30T06:18:55.277Z",
+  "generatedAt": "2026-07-30T07:22:59.459Z",
   "algorithm": "sha256",
   "exclusions": {
     "names": [
@@ -24,10 +24,10 @@
       ".tsbuildinfo"
     ]
   },
-  "fileCount": 6480,
+  "fileCount": 6482,
   "symlinkCount": 60,
-  "totalBytes": 127042642,
-  "treeDigest": "d7ca7b2308ff51e6760443b1c9e2ee08e2290f74e6f417483cbe34763c0cca1e",
+  "totalBytes": 127047724,
+  "treeDigest": "d3e064bf19a8664d3f4ebeacae9b809eaf8ad8f895d625c260cedd3f62b837d1",
   "entries": [
     {
       "path": ".dockerignore",
@@ -847,6 +847,13 @@
       "bytes": 3023,
       "executable": false,
       "sha256": "68e6c99fc7846515327c3319aba04fdf9dba79d340830181e01dcd1769089bd7"
+    },
+    {
+      "path": "docs/p7.6-question-shadow-postgres-store.md",
+      "type": "file",
+      "bytes": 1140,
+      "executable": false,
+      "sha256": "4e73b9507a322a86667b7a7a558b78017c0c6d7eb316cae713f17a5865dd5ff2"
     },
     {
       "path": "flake.lock",
@@ -19861,9 +19868,9 @@
     {
       "path": "packages/opencode/src/question/command-shadow.ts",
       "type": "file",
-      "bytes": 7703,
+      "bytes": 10365,
       "executable": false,
-      "sha256": "40d97da75ec489a2a68da5764d74f63036edcf2e39ad8ffa865272bcb3de1a15"
+      "sha256": "0180866fdec38f5ab7c455f0563cd64b19f4ca9ee6144b3dea2d5310bed25312"
     },
     {
       "path": "packages/opencode/src/question/index.ts",
@@ -22657,6 +22664,13 @@
       "bytes": 2290,
       "executable": false,
       "sha256": "718b11af338d98293567656ab500b735bac5bd22992357269de70125ab0db8d3"
+    },
+    {
+      "path": "packages/opencode/test/question/question-command-shadow-store.test.ts",
+      "type": "file",
+      "bytes": 1280,
+      "executable": false,
+      "sha256": "baeda9f14141af25380715c0465b80dad895359db5b5215039ecb447b8c51cfb"
     },
     {
       "path": "packages/opencode/test/question/question-command-shadow.test.ts",
