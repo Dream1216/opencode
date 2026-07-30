@@ -1,0 +1,89 @@
+name: question-shadow-rollout
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Protected GitHub Environment
+        required: true
+        type: choice
+        options: [production]
+      current_sample_rate:
+        description: Currently deployed Question shadow sample rate
+        required: true
+        type: choice
+        options: ["0.01", "0.05", "0.25"]
+      requested_sample_rate:
+        description: Requested next Question shadow sample rate
+        required: true
+        type: choice
+        options: ["0.05", "0.25", "1"]
+
+concurrency:
+  group: question-shadow-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Validate adjacent rollout stage
+        env:
+          CURRENT_SAMPLE_RATE: ${{ inputs.current_sample_rate }}
+          REQUESTED_SAMPLE_RATE: ${{ inputs.requested_sample_rate }}
+        run: |
+          case "$CURRENT_SAMPLE_RATE:$REQUESTED_SAMPLE_RATE" in
+            0.01:0.05|0.05:0.25|0.25:1) ;;
+            *) echo "Only adjacent rollout stages are allowed" >&2; exit 64 ;;
+          esac
+      - name: Configure restricted deployment identity
+        env:
+          DEPLOY_KEY: ${{ secrets.OPENCODE_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.OPENCODE_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          install -m 600 /dev/null ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Evaluate signed production gate
+        env:
+          DEPLOY_HOST: ${{ vars.OPENCODE_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.OPENCODE_DEPLOY_USER }}
+          CURRENT_SAMPLE_RATE: ${{ inputs.current_sample_rate }}
+          REQUESTED_SAMPLE_RATE: ${{ inputs.requested_sample_rate }}
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" \
+            "/usr/local/sbin/opencode-question-shadow-ci-gate '$CURRENT_SAMPLE_RATE' '$REQUESTED_SAMPLE_RATE'" \
+            | tee question-shadow-gate.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: question-shadow-gate-${{ github.run_id }}
+          path: question-shadow-gate.json
+          retention-days: 30
+
+  apply:
+    needs: gate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}-question-shadow-rollout
+    steps:
+      - name: Configure restricted deployment identity
+        env:
+          DEPLOY_KEY: ${{ secrets.OPENCODE_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.OPENCODE_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          install -m 600 /dev/null ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Apply approved sample rate
+        env:
+          DEPLOY_HOST: ${{ vars.OPENCODE_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.OPENCODE_DEPLOY_USER }}
+          SAMPLE_RATE: ${{ inputs.requested_sample_rate }}
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" \
+            "/usr/local/sbin/opencode-question-shadow-rollout '$SAMPLE_RATE'"
