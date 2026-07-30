@@ -573,14 +573,14 @@ export function AppInterface(props: {
   )
 
   return (
-    <ServerProvider
-      defaultServer={props.defaultServer}
-      canonicalLocalServer={props.canonicalLocalServer}
-      servers={props.servers}
-    >
-      <GlobalProvider>
-        <SettingsProvider>
-          <SaasAuthGate>
+    <SaasAuthGate>
+      <ServerProvider
+        defaultServer={props.defaultServer}
+        canonicalLocalServer={props.canonicalLocalServer}
+        servers={props.servers}
+      >
+        <GlobalProvider>
+          <SettingsProvider>
             <OrganizationGate>
               <ConnectionGate disableHealthCheck={props.disableHealthCheck} startup={props.startup}>
                 <Show when={useSettings().general.newLayoutDesigns().toString()} keyed>
@@ -605,10 +605,10 @@ export function AppInterface(props: {
                 </Show>
               </ConnectionGate>
             </OrganizationGate>
-          </SaasAuthGate>
-        </SettingsProvider>
-      </GlobalProvider>
-    </ServerProvider>
+          </SettingsProvider>
+        </GlobalProvider>
+      </ServerProvider>
+    </SaasAuthGate>
   )
 }
 
