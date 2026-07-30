@@ -60,6 +60,7 @@ jobs:
             "/usr/local/sbin/opencode-question-shadow-ci-gate '$CURRENT_SAMPLE_RATE' '$REQUESTED_SAMPLE_RATE'" \
             | tee question-shadow-gate.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
         with:
           name: question-shadow-gate-${{ github.run_id }}
           path: question-shadow-gate.json
