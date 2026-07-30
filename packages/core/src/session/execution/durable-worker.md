@@ -59,6 +59,22 @@ Additional settings:
 
 The queue remains disabled by default. It assumes all participating processes can access the same authoritative OpenCode SQLite/session storage; moving that projection to PostgreSQL is still outside this phase.
 
+P7.7.1 separates tenant-aware worker coordination from the broader PostgreSQL
+alpha database sidecar. A SaaS server can retain SQLite as the primary Session
+projection while resolving the worker lease tenant from the PostgreSQL Session
+resource binding:
+
+- `OPENCODE_POSTGRES_WORKER_COORDINATION_ENABLED=1`
+- `OPENCODE_POSTGRES_WORKER_COORDINATION_SAAS_SIDECAR=1`
+- `OPENCODE_POSTGRES_WORKER_COORDINATION_TENANTS=tenant-canary`
+- `OPENCODE_DATABASE_BACKEND=sqlite`
+- `OPENCODE_SAAS_MODE=true`
+
+The tenant allowlist is mandatory and evaluated for every Session acquire and
+fence assertion. An allowlisted Session without a fencing token fails closed;
+an unlisted tenant remains on the unchanged local execution path. The worker
+queue remains disabled because its consumer is still statically tenant scoped.
+
 P4.34 adds tenant-scoped queue operations without exposing a new HTTP administration surface:
 
 - readiness and backlog metrics

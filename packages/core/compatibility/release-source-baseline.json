@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-30T07:22:59.459Z",
+  "generatedAt": "2026-07-30T08:16:16.514Z",
   "algorithm": "sha256",
   "exclusions": {
     "names": [
@@ -24,10 +24,10 @@
       ".tsbuildinfo"
     ]
   },
-  "fileCount": 6482,
+  "fileCount": 6483,
   "symlinkCount": 60,
-  "totalBytes": 127047724,
-  "treeDigest": "d3e064bf19a8664d3f4ebeacae9b809eaf8ad8f895d625c260cedd3f62b837d1",
+  "totalBytes": 127055566,
+  "treeDigest": "e35be2d0b74561e296c0c737222a8ca59dced549ef3c6ab4e4ce300c678802a2",
   "entries": [
     {
       "path": ".dockerignore",
@@ -854,6 +854,13 @@
       "bytes": 1140,
       "executable": false,
       "sha256": "4e73b9507a322a86667b7a7a558b78017c0c6d7eb316cae713f17a5865dd5ff2"
+    },
+    {
+      "path": "docs/p7.7.1-saas-worker-coordination-sidecar.md",
+      "type": "file",
+      "bytes": 1557,
+      "executable": false,
+      "sha256": "2362d26b5ecd91462d5052944afc065227910a4e6be9d4c88c314120dc87c0b1"
     },
     {
       "path": "flake.lock",
@@ -12239,9 +12246,9 @@
     {
       "path": "packages/core/src/session/execution/durable-worker.md",
       "type": "file",
-      "bytes": 14855,
+      "bytes": 15662,
       "executable": false,
-      "sha256": "5af6a7dae9f1e4a8044fccfd264e3bfa321e01672ed60fc50637c8da1d851149"
+      "sha256": "8b417fee625d455d6053795bcd4bfd5566c1092cf00a0074c4778939d57568be"
     },
     {
       "path": "packages/core/src/session/execution/local.ts",
@@ -12358,9 +12365,9 @@
     {
       "path": "packages/core/src/session/runner/llm.ts",
       "type": "file",
-      "bytes": 22078,
+      "bytes": 22117,
       "executable": false,
-      "sha256": "e291ab1d40645111b72ff1ee1173a1ebb010d66f3960b23a8633a8c67cdd5b42"
+      "sha256": "cc2a4caf8b158d5156651258eac4bfdfc656f0d0072ecbb3fdca93923d7a67f5"
     },
     {
       "path": "packages/core/src/session/runner/max-steps.ts",
@@ -12477,16 +12484,16 @@
     {
       "path": "packages/core/src/session/worker-coordination-smoke.ts",
       "type": "file",
-      "bytes": 3744,
+      "bytes": 5980,
       "executable": false,
-      "sha256": "7f05c3f5ff37ea9b516a1a330b053ff0187b4c02c216fe24799e68d38bcce25e"
+      "sha256": "26d0e2dc252fd70fe66f322eb848432ca68bdb06f976ee399664715cd2be7e46"
     },
     {
       "path": "packages/core/src/session/worker-coordination.ts",
       "type": "file",
-      "bytes": 6414,
+      "bytes": 9617,
       "executable": false,
-      "sha256": "b846a35103ec997e3fa24d0368f4338e785f34d264d1e380720b8d0563b1748f"
+      "sha256": "3c92e185f792881d2b5d5d60323e838b3356cf9f01afb1890baed82bfe07b910"
     },
     {
       "path": "packages/core/src/session/worker-fence.ts",

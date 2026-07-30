@@ -182,7 +182,7 @@ const layer = Layer.effect(
       workerFence: WorkerFenceToken | undefined,
       recoverOverflow?: typeof compaction.compactAfterOverflow,
     ) {
-      yield* workerCoordination.assertExecutionFence(workerFence)
+      yield* workerCoordination.assertExecutionFence(sessionID, workerFence)
       const session = yield* getSession(sessionID)
       if (session.location.directory !== location.directory || session.location.workspaceID !== location.workspaceID)
         return yield* Effect.interrupt
@@ -261,7 +261,7 @@ const layer = Layer.effect(
               return
             }
             needsContinuation = true
-            yield* workerCoordination.assertExecutionFence(workerFence)
+            yield* workerCoordination.assertExecutionFence(sessionID, workerFence)
             const assistantMessageID = yield* publisher.assistantMessageID(event.id)
             yield* Effect.uninterruptibleMask((restore) =>
               restore(
@@ -405,7 +405,7 @@ const layer = Layer.effect(
       readonly force: boolean
       readonly workerFence?: WorkerFenceToken
     }) {
-      yield* workerCoordination.assertExecutionFence(input.workerFence)
+      yield* workerCoordination.assertExecutionFence(input.sessionID, input.workerFence)
       const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
       const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
       if (!input.force && !hasSteer && !hasQueue) return

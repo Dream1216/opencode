@@ -13,6 +13,8 @@ export async function runWorkerCoordinationSmoke(sql: Sql, input: { readonly url
   const tenantID = `tenant_worker_coordination_${suffix}`
   const actorID = `actor_worker_coordination_${suffix}`
   const sessionID = SessionSchema.ID.make(`ses_worker_coordination_${suffix}`)
+  const sidecarSessionID = SessionSchema.ID.make(`ses_worker_coordination_sidecar_${suffix}`)
+  const unlistedSessionID = SessionSchema.ID.make(`ses_worker_coordination_unlisted_${suffix}`)
   const env = {
     ...process.env,
     OPENCODE_DATABASE_BACKEND: "postgres-alpha",
@@ -34,7 +36,7 @@ export async function runWorkerCoordinationSmoke(sql: Sql, input: { readonly url
         const acquired = yield* coordination.acquire(sessionID)
         if (acquired.status !== "acquired") return yield* Effect.die("Worker coordination adapter did not acquire")
         checks.push("session-execution-adapter-acquired")
-        yield* coordination.assertExecutionFence(acquired.handle.fence)
+        yield* coordination.assertExecutionFence(sessionID, acquired.handle.fence)
         checks.push("execution-boundary-fence-validated")
 
         const contender = yield* Effect.tryPromise(() =>
@@ -49,7 +51,7 @@ export async function runWorkerCoordinationSmoke(sql: Sql, input: { readonly url
         checks.push("competing-session-execution-blocked")
 
         const heartbeat = yield* coordination.heartbeat(acquired.handle)
-        yield* coordination.assertExecutionFence(heartbeat.fence)
+        yield* coordination.assertExecutionFence(sessionID, heartbeat.fence)
         checks.push("heartbeat-fence-refreshed")
         const tool = toolWorkerFence(heartbeat.fence, "call_coordination_smoke")
         if (!tool.idempotencyKey.includes(String(heartbeat.fence.fencingToken))) {
@@ -58,7 +60,7 @@ export async function runWorkerCoordinationSmoke(sql: Sql, input: { readonly url
         checks.push("tool-fence-context-ready")
 
         yield* coordination.release(heartbeat)
-        const stale = yield* coordination.assertExecutionFence(heartbeat.fence).pipe(Effect.exit)
+        const stale = yield* coordination.assertExecutionFence(sessionID, heartbeat.fence).pipe(Effect.exit)
         if (Exit.isSuccess(stale)) return yield* Effect.die("Released worker fence remained valid")
         checks.push("released-fence-rejected")
       }).pipe(Effect.provide(layerFromEnv(env)), Effect.scoped),
@@ -77,8 +79,55 @@ export async function runWorkerCoordinationSmoke(sql: Sql, input: { readonly url
     )
     if (disabled) throw new Error("Tenant allowlist did not disable worker coordination")
     checks.push("tenant-feature-flag-disabled")
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const coordination = yield* Service
+        if (!coordination.enabled) return yield* Effect.die("SaaS worker sidecar should be enabled")
+        const acquired = yield* coordination.acquire(sidecarSessionID)
+        if (acquired.status !== "acquired") return yield* Effect.die("SaaS worker sidecar did not acquire")
+        checks.push("saas-sidecar-session-tenant-resolved")
+        yield* coordination.assertExecutionFence(sidecarSessionID, acquired.handle.fence)
+        checks.push("saas-sidecar-fence-validated")
+
+        const missingFence = yield* coordination
+          .assertExecutionFence(sidecarSessionID, undefined)
+          .pipe(Effect.exit)
+        if (Exit.isSuccess(missingFence)) {
+          return yield* Effect.die("Allowlisted SaaS Session executed without a fencing token")
+        }
+        checks.push("saas-sidecar-missing-fence-rejected")
+
+        const unlisted = yield* coordination.acquire(unlistedSessionID)
+        if (unlisted.status !== "disabled") {
+          return yield* Effect.die("Unlisted SaaS tenant acquired worker coordination")
+        }
+        yield* coordination.assertExecutionFence(unlistedSessionID, undefined)
+        checks.push("saas-sidecar-unlisted-tenant-disabled")
+        yield* coordination.release(acquired.handle)
+      }).pipe(
+        Effect.provide(
+          layerFromEnv(
+            {
+              ...env,
+              OPENCODE_DATABASE_BACKEND: "sqlite",
+              OPENCODE_SAAS_MODE: "true",
+              OPENCODE_TENANT_ID: undefined,
+              OPENCODE_ACTOR_ID: undefined,
+              OPENCODE_POSTGRES_WORKER_COORDINATION_SAAS_SIDECAR: "1",
+            },
+            {
+              resolveTenant: async (_sql, current) =>
+                current === sidecarSessionID ? tenant : { tenantID: "tenant_not_allowlisted" },
+            },
+          ),
+        ),
+        Effect.scoped,
+      ),
+    )
     return { status: "ok" as const, checks }
   } finally {
     await cleanupWorkerRun(sql, tenant, sessionID)
+    await cleanupWorkerRun(sql, tenant, sidecarSessionID)
   }
 }
