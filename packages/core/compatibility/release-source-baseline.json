@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-30T10:06:26.217Z",
+  "generatedAt": "2026-07-30T13:37:46.461Z",
   "algorithm": "sha256",
   "exclusions": {
     "names": [
@@ -24,10 +24,10 @@
       ".tsbuildinfo"
     ]
   },
-  "fileCount": 6485,
+  "fileCount": 6488,
   "symlinkCount": 60,
-  "totalBytes": 127070960,
-  "treeDigest": "94c1c2b85dcd5bf2a6d0348d1fdb4f5eb103ef5a17ab1c338d24763ba6a3fe0b",
+  "totalBytes": 127081096,
+  "treeDigest": "c5569d32fb2c465df893588276199cced9eaae9e9dd0a1dd958b36e534769c8e",
   "entries": [
     {
       "path": ".dockerignore",
@@ -875,6 +875,13 @@
       "bytes": 1314,
       "executable": false,
       "sha256": "8a17c56050ca877df7628bde229cf13f872ea233285c2c2d092e218eb80c2930"
+    },
+    {
+      "path": "docs/p7.7.3-workspace-durable-worker-recovery.md",
+      "type": "file",
+      "bytes": 1496,
+      "executable": false,
+      "sha256": "9dc803e8d61ac4933b51a57ee2011436eb50eebb64871372cba2c2d748610a97"
     },
     {
       "path": "flake.lock",
@@ -10916,9 +10923,9 @@
     {
       "path": "packages/core/src/database/postgres/schema.ts",
       "type": "file",
-      "bytes": 23859,
+      "bytes": 24223,
       "executable": false,
-      "sha256": "128d5f4db026a597e65551d747419905ec754b2043b89829ab8abdfabcd0364f"
+      "sha256": "6bea73db885d1bca81b9414dc98d70c916b7b2096349f0c401585e701753f9da"
     },
     {
       "path": "packages/core/src/database/postgres/session-projection-dry-run.ts",
@@ -10958,9 +10965,9 @@
     {
       "path": "packages/core/src/database/postgres/worker-job.ts",
       "type": "file",
-      "bytes": 15655,
+      "bytes": 16228,
       "executable": false,
-      "sha256": "f392c4275299391bd09108b4c8863c2b60ab175191ffa7a9c78132ce5758f414"
+      "sha256": "350218921d72ce1df7a74a7fa39da8eecec762567b485dbc3a9a8b6fede4c190"
     },
     {
       "path": "packages/core/src/database/postgres/worker-lease-chaos.ts",
@@ -12519,16 +12526,16 @@
     {
       "path": "packages/core/src/session/worker-queue-smoke.ts",
       "type": "file",
-      "bytes": 6094,
+      "bytes": 7437,
       "executable": false,
-      "sha256": "dbb24935dff376d4d8c11e256b131095040987e2129616e1b1f120bdbd6c66ad"
+      "sha256": "8d9e5a6785107a2e06f1b39f3a4fbcd6c53eae3afb23bcf19f3bccfeb538f238"
     },
     {
       "path": "packages/core/src/session/worker-queue.ts",
       "type": "file",
-      "bytes": 10763,
+      "bytes": 11990,
       "executable": false,
-      "sha256": "40aaebd5cd03ec19bd8892c69d45fc50a61022bd28c9c5e7913655e20f883a92"
+      "sha256": "ebf5b2e9fdd7e74e853110695984a0b38869b9858aec578c17f549be6472ae0f"
     },
     {
       "path": "packages/core/src/session/workflow.md",
@@ -20386,9 +20393,9 @@
     {
       "path": "packages/opencode/src/server/routes/instance/httpapi/server.ts",
       "type": "file",
-      "bytes": 13503,
+      "bytes": 13599,
       "executable": false,
-      "sha256": "b9c0229a166b79a58b948c99f9efa0dc7cf95f2ce0328d6c6e75a794a1050746"
+      "sha256": "ae67d9c80947f4b1b06b76f400b7eef477ecbabb6505d29f3da44af00b5fa2fc"
     },
     {
       "path": "packages/opencode/src/server/routes/instance/httpapi/websocket-tracker.ts",
@@ -20547,9 +20554,9 @@
     {
       "path": "packages/opencode/src/session/prompt.ts",
       "type": "file",
-      "bytes": 68764,
+      "bytes": 69635,
       "executable": false,
-      "sha256": "db63e3b81380d0e64ee6b8a22abed452a81b24baed3ce75fa2d54260d607a9fb"
+      "sha256": "e5e119c7e7b4995f035d9428157ceb4bbe7472386d2d38edf984bcc87f945391"
     },
     {
       "path": "packages/opencode/src/session/prompt/anthropic.txt",
@@ -20725,6 +20732,13 @@
       "bytes": 23424,
       "executable": false,
       "sha256": "ec76a577f6f68d44c6202dcd3fae1d3b859c8a3bda603939364048ce033be095"
+    },
+    {
+      "path": "packages/opencode/src/session/worker-recovery.ts",
+      "type": "file",
+      "bytes": 2803,
+      "executable": false,
+      "sha256": "db34eed234d42b30ece2f5e9c24400b280ca17782d08d129c1d066e394a66c59"
     },
     {
       "path": "packages/opencode/src/shadow-agent-run/event-store.ts",
@@ -23280,6 +23294,13 @@
       "bytes": 4541,
       "executable": false,
       "sha256": "f27b93ae4155a54c737c0c22f7621b2a026dbab4606e9bd0e88f90872bb342ac"
+    },
+    {
+      "path": "packages/opencode/test/session/worker-recovery.test.ts",
+      "type": "file",
+      "bytes": 1363,
+      "executable": false,
+      "sha256": "05d0ed70f9f1bc1264301c6238f4e70a29619ae3ae9d5494122c0b2ffafbe3cd"
     },
     {
       "path": "packages/opencode/test/shadow-agent-run/event-store.test.ts",

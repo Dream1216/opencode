@@ -38,6 +38,7 @@ import { SessionRunState } from "@/session/run-state"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
+import { SessionWorkerRecovery } from "@/session/worker-recovery"
 import { Todo } from "@/session/todo"
 import { SessionShare } from "@/share/session"
 import { ShareNext } from "@/share/share-next"
@@ -282,6 +283,7 @@ const app = LayerNode.group([
   ProjectCopy.node,
   PtyTicket.node,
   WorkerQueueAdmin.node,
+  SessionWorkerRecovery.node,
 ])
 
 export function createRoutes(

@@ -14,7 +14,10 @@ export async function runWorkerQueueSmoke(sql: Sql, input: { readonly url: strin
   const sessionID = SessionSchema.ID.make(`ses_worker_queue_${suffix}`)
   const otherSessionID = SessionSchema.ID.make(`ses_worker_queue_other_${suffix}`)
   const sidecarSessionID = SessionSchema.ID.make(`ses_worker_queue_sidecar_${suffix}`)
+  const sidecarOtherSessionID = SessionSchema.ID.make(`ses_worker_queue_sidecar_other_${suffix}`)
   const unlistedSessionID = SessionSchema.ID.make(`ses_worker_queue_unlisted_${suffix}`)
+  const workspaceA = `/tmp/opencode-worker-queue-${suffix}-a`
+  const workspaceB = `/tmp/opencode-worker-queue-${suffix}-b`
   const tenant = { tenantID, actorID }
   const env = {
     ...process.env,
@@ -35,28 +38,33 @@ export async function runWorkerQueueSmoke(sql: Sql, input: { readonly url: strin
       Effect.gen(function* () {
         const queue = yield* Service
         if (!queue.enabled) return yield* Effect.die("Worker queue should be enabled")
-        const firstGeneration = yield* queue.enqueue(sessionID, "wake")
-        const otherGeneration = yield* queue.enqueue(otherSessionID, "wake")
-        const first = yield* queue.claim(sessionID)
+        const firstGeneration = yield* queue.enqueue(sessionID, "wake", workspaceA)
+        const otherGeneration = yield* queue.enqueue(otherSessionID, "wake", workspaceB)
+        const wrongWorkspace = yield* queue.claim({ sessionID, workspaceDirectory: workspaceB })
+        if (wrongWorkspace !== undefined) {
+          return yield* Effect.die("Worker queue crossed a workspace boundary")
+        }
+        const first = yield* queue.claim({ sessionID, workspaceDirectory: workspaceA })
         if (first === undefined || first.requestedGeneration !== firstGeneration) {
           return yield* Effect.die("Worker queue did not claim the first generation")
         }
-        const other = yield* queue.claim(otherSessionID)
+        const other = yield* queue.claim({ sessionID: otherSessionID, workspaceDirectory: workspaceB })
         if (other === undefined || other.requestedGeneration !== otherGeneration) {
           return yield* Effect.die("Worker queue did not claim the requested Session")
         }
         yield* queue.complete(other)
         checks.push("queue-enqueue-claim-ready")
         checks.push("queue-session-scoped-claim-ready")
+        checks.push("queue-workspace-boundary-ready")
         const heartbeat = yield* queue.heartbeat(first)
         if (heartbeat.claimExpiresAt <= first.claimExpiresAt) {
           return yield* Effect.die("Worker queue heartbeat did not extend the claim")
         }
         checks.push("queue-claim-heartbeat-ready")
 
-        const secondGeneration = yield* queue.enqueue(sessionID, "resume")
+        const secondGeneration = yield* queue.enqueue(sessionID, "resume", workspaceA)
         yield* queue.complete(heartbeat)
-        const second = yield* queue.claim(sessionID)
+        const second = yield* queue.claim({ sessionID, workspaceDirectory: workspaceA })
         if (second === undefined || second.claimedGeneration !== secondGeneration) {
           return yield* Effect.die("Worker queue did not preserve a generation enqueued during execution")
         }
@@ -85,9 +93,10 @@ export async function runWorkerQueueSmoke(sql: Sql, input: { readonly url: strin
         if (!queue.enabled || queue.consumerMode !== "legacy-prompt") {
           return yield* Effect.die("SaaS legacy Prompt queue sidecar should be enabled")
         }
-        const generation = yield* queue.enqueue(sidecarSessionID, "resume")
+        const generation = yield* queue.enqueue(sidecarSessionID, "resume", workspaceA)
+        const otherGeneration = yield* queue.enqueue(sidecarOtherSessionID, "resume", workspaceB)
         if (generation !== 1) return yield* Effect.die("SaaS queue did not enqueue the first generation")
-        const claim = yield* queue.claim(sidecarSessionID)
+        const claim = yield* queue.claim({ workspaceDirectory: workspaceA })
         if (claim?.runID !== sidecarSessionID || claim.tenantID !== tenantID) {
           return yield* Effect.die("SaaS queue claimed the wrong tenant or Session")
         }
@@ -95,9 +104,16 @@ export async function runWorkerQueueSmoke(sql: Sql, input: { readonly url: strin
         yield* queue.awaitCompletion(sidecarSessionID, generation)
         checks.push("saas-queue-session-tenant-resolved")
         checks.push("saas-queue-session-scoped-claim-ready")
+        checks.push("saas-queue-workspace-partition-ready")
         checks.push("saas-queue-allowlisted-generation-completed")
 
-        const bypass = yield* queue.enqueue(unlistedSessionID, "resume")
+        const otherClaim = yield* queue.claim({ workspaceDirectory: workspaceB })
+        if (otherClaim?.runID !== sidecarOtherSessionID || otherClaim.claimedGeneration !== otherGeneration) {
+          return yield* Effect.die("SaaS queue did not recover the other workspace independently")
+        }
+        yield* queue.complete(otherClaim)
+
+        const bypass = yield* queue.enqueue(unlistedSessionID, "resume", workspaceA)
         if (bypass !== 0) return yield* Effect.die("Unlisted SaaS tenant was enqueued")
         yield* queue.awaitCompletion(unlistedSessionID, bypass)
         checks.push("saas-queue-unlisted-tenant-bypassed")
@@ -116,7 +132,9 @@ export async function runWorkerQueueSmoke(sql: Sql, input: { readonly url: strin
             },
             {
               resolveTenant: async (_sql, current) =>
-                current === sidecarSessionID ? tenant : { tenantID: "tenant_not_allowlisted" },
+                current === sidecarSessionID || current === sidecarOtherSessionID
+                  ? tenant
+                  : { tenantID: "tenant_not_allowlisted" },
             },
           ),
         ),
@@ -128,5 +146,6 @@ export async function runWorkerQueueSmoke(sql: Sql, input: { readonly url: strin
     await cleanupWorkerJob(sql, tenant, sessionID)
     await cleanupWorkerJob(sql, tenant, otherSessionID)
     await cleanupWorkerJob(sql, tenant, sidecarSessionID)
+    await cleanupWorkerJob(sql, tenant, sidecarOtherSessionID)
   }
 }

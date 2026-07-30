@@ -8,6 +8,7 @@ export type WorkerJobStatus = "pending" | "running" | "completed" | "failed" | "
 export type WorkerJob = {
   readonly tenantID: string
   readonly runID: string
+  readonly workspaceDirectory?: string
   readonly requestedGeneration: number
   readonly claimedGeneration: number
   readonly completedGeneration: number
@@ -33,6 +34,7 @@ export type WorkerJobClaim = WorkerJob & {
 type JobRow = {
   tenant_id: string
   run_id: string
+  workspace_directory: string | null
   requested_generation: string | number
   claimed_generation: string | number
   completed_generation: string | number
@@ -86,6 +88,7 @@ export async function enqueueWorkerJob(
   input: {
     readonly tenant: TenantContext
     readonly runID: string
+    readonly workspaceDirectory?: string
     readonly reason: Exclude<WorkerJobReason, "recovery">
   },
 ): Promise<WorkerJob> {
@@ -94,15 +97,16 @@ export async function enqueueWorkerJob(
     const now = await databaseNow(tx)
     const rows = await tx<JobRow[]>`
       insert into worker_job (
-        tenant_id, run_id, requested_generation, claimed_generation, completed_generation,
+        tenant_id, run_id, workspace_directory, requested_generation, claimed_generation, completed_generation,
         reason, status, available_at, claim_token, attempts, time_created, time_updated
       )
       values (
-        ${input.tenant.tenantID}, ${input.runID}, 1, 0, 0,
+        ${input.tenant.tenantID}, ${input.runID}, ${input.workspaceDirectory ?? null}, 1, 0, 0,
         ${input.reason}, 'pending', ${now}, 0, 0, ${now}, ${now}
       )
       on conflict (tenant_id, run_id) do update
       set requested_generation = worker_job.requested_generation + 1,
+          workspace_directory = coalesce(excluded.workspace_directory, worker_job.workspace_directory),
           reason = excluded.reason,
           status = case
             when worker_job.status = 'running' and worker_job.claim_expires_at > ${now} then 'running'
@@ -125,6 +129,7 @@ export async function claimNextWorkerJob(
     readonly ownerID: string
     readonly claimMs: number
     readonly runID?: string
+    readonly workspaceDirectory?: string
   },
 ): Promise<WorkerJobClaim | undefined> {
   if (input.claimMs <= 0) throw new Error("Worker job claim duration must be positive")
@@ -139,6 +144,10 @@ export async function claimNextWorkerJob(
         or (status = 'running' and claim_expires_at <= ${now})
       )
         and (${input.runID ?? null}::text is null or run_id = ${input.runID ?? null})
+        and (
+          ${input.workspaceDirectory ?? null}::text is null
+          or workspace_directory = ${input.workspaceDirectory ?? null}
+        )
       order by available_at, time_created, run_id
       for update skip locked
       limit 1
@@ -459,6 +468,7 @@ function fromRow(row: JobRow): WorkerJob {
   return {
     tenantID: row.tenant_id,
     runID: row.run_id,
+    ...(row.workspace_directory === null ? {} : { workspaceDirectory: row.workspace_directory }),
     requestedGeneration: Number(row.requested_generation),
     claimedGeneration: Number(row.claimed_generation),
     completedGeneration: Number(row.completed_generation),

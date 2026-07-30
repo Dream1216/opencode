@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from "effect"
+import path from "node:path"
 import type { Sql } from "postgres"
 import {
   cancelWorkerJob,
@@ -26,8 +27,12 @@ export type Interface = {
   readonly enqueue: (
     sessionID: SessionSchema.ID,
     reason: Exclude<WorkerJobReason, "recovery">,
+    workspaceDirectory?: string,
   ) => Effect.Effect<number>
-  readonly claim: (sessionID?: SessionSchema.ID) => Effect.Effect<WorkerJobClaim | undefined>
+  readonly claim: (input?: {
+    readonly sessionID?: SessionSchema.ID
+    readonly workspaceDirectory?: string
+  }) => Effect.Effect<WorkerJobClaim | undefined>
   readonly heartbeat: (claim: WorkerJobClaim) => Effect.Effect<WorkerJobClaim>
   readonly complete: (claim: WorkerJobClaim) => Effect.Effect<void>
   readonly fail: (claim: WorkerJobClaim, error: string) => Effect.Effect<void>
@@ -122,29 +127,52 @@ export function layerFromEnv(
         consumerMode: settings.consumerMode,
         pollIntervalMs,
         heartbeatIntervalMs,
-        enqueue: (sessionID, reason) =>
+        enqueue: (sessionID, reason, workspaceDirectory) =>
           tenantFor(sessionID).pipe(
             Effect.flatMap((tenant) =>
               tenant === undefined
                 ? Effect.succeed(0)
-                : db(() => enqueueWorkerJob(sql, { tenant, runID: sessionID, reason })).pipe(
+                : settings.consumerMode === "legacy-prompt" &&
+                    normalizeWorkspace(workspaceDirectory) === undefined
+                  ? Effect.die(
+                      new Error(`Legacy Prompt worker job ${sessionID} requires a workspace directory`),
+                    )
+                  : db(() =>
+                      enqueueWorkerJob(sql, {
+                        tenant,
+                        runID: sessionID,
+                        reason,
+                        workspaceDirectory: normalizeWorkspace(workspaceDirectory),
+                      }),
+                    ).pipe(
                     Effect.map((job) => job.requestedGeneration),
                   ),
             ),
           ),
-        claim: (sessionID) =>
+        claim: (input = {}) =>
           Effect.gen(function* () {
+            const sessionID = input.sessionID
+            const workspaceDirectory = normalizeWorkspace(input.workspaceDirectory)
+            if (settings.consumerMode === "legacy-prompt" && workspaceDirectory === undefined) return
             if (sessionID !== undefined) {
               const tenant = yield* tenantFor(sessionID)
               if (tenant === undefined) return
               return yield* db(() =>
-                claimNextWorkerJob(sql, { tenant, ownerID, claimMs, runID: sessionID }),
+                claimNextWorkerJob(sql, {
+                  tenant,
+                  ownerID,
+                  claimMs,
+                  runID: sessionID,
+                  workspaceDirectory,
+                }),
               )
             }
             for (let offset = 0; offset < settings.tenants.length; offset++) {
               const index = (claimCursor + offset) % settings.tenants.length
               const tenant = settings.tenants[index]!
-              const claim = yield* db(() => claimNextWorkerJob(sql, { tenant, ownerID, claimMs }))
+              const claim = yield* db(() =>
+                claimNextWorkerJob(sql, { tenant, ownerID, claimMs, workspaceDirectory }),
+              )
               if (claim !== undefined) {
                 claimCursor = (index + 1) % settings.tenants.length
                 return claim
@@ -271,4 +299,9 @@ function db<A>(operation: () => Promise<A>): Effect.Effect<A> {
 function positive(value: string | undefined, fallback: number) {
   const parsed = Number(value ?? fallback)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function normalizeWorkspace(value: string | undefined) {
+  const trimmed = value?.trim()
+  return trimmed ? path.resolve(trimmed) : undefined
 }

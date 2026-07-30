@@ -214,6 +214,13 @@ export const migrations: readonly SqlMigration[] = [
       "create index event_type_aggregate_seq_idx on event (tenant_id, type, aggregate_id, seq)",
     ],
   },
+  {
+    id: "p7_7_3_001_worker_job_workspace_partition",
+    statements: [
+      "alter table worker_job add column if not exists workspace_directory text",
+      "create index if not exists worker_job_workspace_claim_idx on worker_job (tenant_id, workspace_directory, status, available_at, claim_expires_at, time_created)",
+    ],
+  },
 ]
 
 export function allStatements() {
@@ -237,6 +244,7 @@ export function validateDraft() {
     "fencing_token",
     "requested_generation",
     "claim_token",
+    "workspace_directory",
     "team_member",
     "worker_queue_api_nonce",
     "worker_queue_action",

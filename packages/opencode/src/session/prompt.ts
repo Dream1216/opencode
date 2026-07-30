@@ -111,6 +111,7 @@ export interface Interface {
   readonly shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
   readonly command: (input: CommandInput) => Effect.Effect<SessionV1.WithParts, Image.Error>
   readonly resolvePromptParts: (template: string) => Effect.Effect<PromptInput["parts"]>
+  readonly recoverWorkspaceQueue: Effect.Effect<never>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionPrompt") {}
@@ -1411,9 +1412,10 @@ const layer = Layer.effect(
       sessionID: SessionID,
       generation: number,
     ) {
+      const directory = (yield* InstanceState.context).directory
       const consume = Effect.forever(
         Effect.gen(function* () {
-          const claim = yield* workerQueue.claim(sessionID)
+          const claim = yield* workerQueue.claim({ sessionID, workspaceDirectory: directory })
           if (claim !== undefined) yield* processQueueClaim(claim)
           yield* Effect.sleep(workerQueue.pollIntervalMs)
         }),
@@ -1421,11 +1423,25 @@ const layer = Layer.effect(
       yield* Effect.raceFirst(workerQueue.awaitCompletion(sessionID, generation), consume)
     })
 
+    const recoverWorkspaceQueue = Effect.gen(function* () {
+      const directory = (yield* InstanceState.context).directory
+      if (workerQueue.consumerMode !== "legacy-prompt") return yield* Effect.never
+      yield* Effect.logInfo("starting PostgreSQL workspace recovery consumer", { directory })
+      return yield* Effect.forever(
+        Effect.gen(function* () {
+          const claim = yield* workerQueue.claim({ workspaceDirectory: directory })
+          if (claim !== undefined) yield* processQueueClaim(claim)
+          yield* Effect.sleep(workerQueue.pollIntervalMs)
+        }),
+      )
+    })
+
     const loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.loop")(function* (
       input: LoopInput,
     ) {
       if (workerQueue.consumerMode === "legacy-prompt") {
-        const generation = yield* workerQueue.enqueue(input.sessionID, "resume")
+        const directory = (yield* InstanceState.context).directory
+        const generation = yield* workerQueue.enqueue(input.sessionID, "resume", directory)
         if (generation > 0) {
           yield* consumeQueuedGeneration(input.sessionID, generation)
           return yield* lastAssistant(input.sessionID)
@@ -1579,6 +1595,7 @@ const layer = Layer.effect(
       shell,
       command,
       resolvePromptParts,
+      recoverWorkspaceQueue,
     })
   }),
 )
