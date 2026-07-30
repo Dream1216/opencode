@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-30T08:16:16.514Z",
+  "generatedAt": "2026-07-30T08:29:56.899Z",
   "algorithm": "sha256",
   "exclusions": {
     "names": [
@@ -26,8 +26,8 @@
   },
   "fileCount": 6483,
   "symlinkCount": 60,
-  "totalBytes": 127055566,
-  "treeDigest": "e35be2d0b74561e296c0c737222a8ca59dced549ef3c6ab4e4ce300c678802a2",
+  "totalBytes": 127058320,
+  "treeDigest": "f73511ea3b1a047370b89782d2d99b1baf88a19bf6af3e196913f8686110337a",
   "entries": [
     {
       "path": ".dockerignore",
@@ -858,9 +858,9 @@
     {
       "path": "docs/p7.7.1-saas-worker-coordination-sidecar.md",
       "type": "file",
-      "bytes": 1557,
+      "bytes": 1971,
       "executable": false,
-      "sha256": "2362d26b5ecd91462d5052944afc065227910a4e6be9d4c88c314120dc87c0b1"
+      "sha256": "be03360e20d6cbc318a0509cce39a09d541c9560fb1e2cc0e63106cf7352500b"
     },
     {
       "path": "flake.lock",
@@ -12246,9 +12246,9 @@
     {
       "path": "packages/core/src/session/execution/durable-worker.md",
       "type": "file",
-      "bytes": 15662,
+      "bytes": 16158,
       "executable": false,
-      "sha256": "8b417fee625d455d6053795bcd4bfd5566c1092cf00a0074c4778939d57568be"
+      "sha256": "51b7fbbbaf20af9703e95a7484befa2a2ebd9a34e70093e1a29904cb643b2197"
     },
     {
       "path": "packages/core/src/session/execution/local.ts",
@@ -20533,9 +20533,9 @@
     {
       "path": "packages/opencode/src/session/prompt.ts",
       "type": "file",
-      "bytes": 64925,
+      "bytes": 66769,
       "executable": false,
-      "sha256": "79519fc90f6cac8ee992a7d772474e257758bcff44a2fe3b402bb1803ef72c3e"
+      "sha256": "3f6de9e38a372f3f76c9dc070936abd6fc6e4b873cb52de5a32a86c3dae12365"
     },
     {
       "path": "packages/opencode/src/session/prompt/anthropic.txt",

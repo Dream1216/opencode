@@ -56,6 +56,10 @@ import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
+import {
+  SessionWorkerCoordination,
+  type Handle as WorkerCoordinationHandle,
+} from "@opencode-ai/core/session/worker-coordination"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -140,6 +144,7 @@ const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
+    const workerCoordination = yield* SessionWorkerCoordination.Service
     const { db } = database
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
@@ -1078,14 +1083,18 @@ const layer = Layer.effect(
       throw new Error("Impossible")
     })
 
-    const runLoop: (sessionID: SessionID) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.run")(
-      function* (sessionID: SessionID) {
+    const runLoop: (
+      sessionID: SessionID,
+      workerHandle?: () => WorkerCoordinationHandle,
+    ) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.run")(
+      function* (sessionID: SessionID, workerHandle?: () => WorkerCoordinationHandle) {
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
         while (true) {
+          yield* workerCoordination.assertExecutionFence(sessionID, workerHandle?.().fence)
           yield* status.set(sessionID, { type: "busy" })
           yield* Effect.logInfo("loop", { "session.id": sessionID, step })
 
@@ -1343,7 +1352,42 @@ const layer = Layer.effect(
     const loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.loop")(function* (
       input: LoopInput,
     ) {
-      return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), runLoop(input.sessionID))
+      const work = Effect.gen(function* () {
+        const acquisition = yield* workerCoordination.acquire(input.sessionID)
+        if (acquisition.status === "disabled") return yield* runLoop(input.sessionID)
+        if (acquisition.status === "contended") {
+          return yield* Effect.die(
+            new Error(
+              `PostgreSQL worker lease for ${input.sessionID} is held by ${acquisition.lease.ownerID}`,
+            ),
+          )
+        }
+
+        let handle = acquisition.handle
+        const heartbeat = Effect.forever(
+          Effect.sleep(Math.max(1_000, Math.floor(handle.ttlMs / 3))).pipe(
+            Effect.andThen(workerCoordination.heartbeat(handle)),
+            Effect.tap((next) =>
+              Effect.sync(() => {
+                handle = next
+              }),
+            ),
+            Effect.asVoid,
+          ),
+        )
+        const exit = yield* Effect.raceFirst(
+          runLoop(input.sessionID, () => handle),
+          heartbeat,
+        ).pipe(Effect.exit)
+        if (Exit.isSuccess(exit)) {
+          const completed = yield* workerCoordination.complete(handle).pipe(Effect.exit)
+          if (Exit.isFailure(completed)) return yield* Effect.failCause(completed.cause)
+          return exit.value
+        }
+        yield* workerCoordination.release(handle).pipe(Effect.catchCause(() => Effect.void))
+        return yield* Effect.failCause(exit.cause)
+      })
+      return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), work)
     })
 
     const shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError> = Effect.fn(
@@ -1625,6 +1669,7 @@ export const node = LayerNode.make({
     EventV2Bridge.node,
     RuntimeFlags.node,
     Database.node,
+    SessionWorkerCoordination.node,
   ],
 })
 

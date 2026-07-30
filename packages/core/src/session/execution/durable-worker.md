@@ -75,6 +75,14 @@ fence assertion. An allowlisted Session without a fencing token fails closed;
 an unlisted tenant remains on the unchanged local execution path. The worker
 queue remains disabled because its consumer is still statically tenant scoped.
 
+The OpenCode legacy HTTP prompt path keeps its existing `SessionPrompt` loop,
+message projection, model selection, and tool behavior. P7.7.1 wraps only the
+`SessionRunState.ensureRunning` work boundary with the same PostgreSQL
+coordination service. The first local runner acquires the lease, each model-loop
+iteration validates the current fence, heartbeat loss interrupts the work, and
+the terminal path completes or releases the lease. This is deliberately not a
+second runner implementation.
+
 P4.34 adds tenant-scoped queue operations without exposing a new HTTP administration surface:
 
 - readiness and backlog metrics
