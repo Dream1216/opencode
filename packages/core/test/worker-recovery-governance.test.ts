@@ -48,7 +48,15 @@ describe("WorkerRecoveryGovernance", () => {
       OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_BREAKER_MIN_SAMPLES: "2",
       OPENCODE_POSTGRES_WORKER_QUEUE_RECOVERY_BREAKER_ERROR_RATE: "0.4",
     })
-    const store = makeMemoryShadowCanaryBreakerStore(config.policy)
+    const baseStore = makeMemoryShadowCanaryBreakerStore(config.policy)
+    const recorded: Record<string, unknown>[] = []
+    const store = {
+      ...baseStore,
+      async record(diff: unknown) {
+        recorded.push(diff as Record<string, unknown>)
+        return baseStore.record(diff)
+      },
+    }
     const first = await makeWorkerRecoveryGovernance(config, {
       partition,
       instanceID: "worker-a",
@@ -73,6 +81,8 @@ describe("WorkerRecoveryGovernance", () => {
       allowed: false,
       reason: "breaker_open",
     })
+    expect(recorded.map((item) => item.recoveryInstanceID)).toEqual(["worker-a", "worker-b"])
+    expect(recorded.every((item) => item.recoveryPartitionID === workerRecoveryPartitionID(partition))).toBe(true)
 
     const metrics = renderWorkerQueueRecoveryPrometheus({ tenantID: "tenant-a" })
     expect(metrics).toContain('instance_id="worker-a",outcome="completed"} 1')
@@ -82,7 +92,7 @@ describe("WorkerRecoveryGovernance", () => {
 
     await first.close()
     await second.close()
-    await store.close()
+    await baseStore.close()
   })
 
   test("fails closed when PostgreSQL breaker settings are incomplete", async () => {

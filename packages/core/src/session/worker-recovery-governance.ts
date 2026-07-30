@@ -226,6 +226,9 @@ export async function makeWorkerRecoveryGovernance(
           statusMatch: true,
           toolPlanDigestMatch: true,
           latencyRatio: 0,
+          recoveryInstanceID: input.instanceID,
+          recoveryPartitionID: partitionID,
+          recoveryOutcome: outcome,
         })
       } catch {
         recordWorkerQueueRecoveryAttempt({ ...labels, outcome: "store_error" })

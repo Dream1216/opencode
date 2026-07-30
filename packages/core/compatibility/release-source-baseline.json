@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-30T14:52:47.718Z",
+  "generatedAt": "2026-07-30T15:19:08.186Z",
   "algorithm": "sha256",
   "exclusions": {
     "names": [
@@ -26,8 +26,8 @@
   },
   "fileCount": 6491,
   "symlinkCount": 60,
-  "totalBytes": 127108065,
-  "treeDigest": "c13803b8082921df49482ce38aaaeb4bba2ce0f1f1c3b93b3de7724d0b8d3bc6",
+  "totalBytes": 127108802,
+  "treeDigest": "3d5bd45ab026ea150a2fe5dfd0d98780fb9e8d9ca6036104150891fd68b60b12",
   "entries": [
     {
       "path": ".dockerignore",
@@ -886,9 +886,9 @@
     {
       "path": "docs/p7.7.4-governed-multi-instance-worker-recovery.md",
       "type": "file",
-      "bytes": 2514,
+      "bytes": 2671,
       "executable": false,
-      "sha256": "89a2683e9ee381dc662969014b33f85ccb1835bc091802ff834a6225173ca64f"
+      "sha256": "ccae1393012c7fdc372e4fff27c79d4cc9e208c34c27fd220122556727b56735"
     },
     {
       "path": "flake.lock",
@@ -12547,9 +12547,9 @@
     {
       "path": "packages/core/src/session/worker-recovery-governance.ts",
       "type": "file",
-      "bytes": 8038,
+      "bytes": 8166,
       "executable": false,
-      "sha256": "006f0bf74f65f4268021a4bb4611e8e53347a5d0b8f64ca4b144f31bd0c51412"
+      "sha256": "c022941e13c3c7e2f2c748aa3a776ec6c2084288e9f2602f19e89015c519fb6a"
     },
     {
       "path": "packages/core/src/session/workflow.md",
@@ -14276,9 +14276,9 @@
     {
       "path": "packages/core/test/worker-recovery-governance.test.ts",
       "type": "file",
-      "bytes": 3865,
+      "bytes": 4317,
       "executable": false,
-      "sha256": "d6e0e44879f7aa6738203860cb8f4a3186f93d1eb19ec6e1c2e5462e7d83d6a9"
+      "sha256": "892aaf0350b759551cf1a24b42f4aa2872d1c18154ecc03bbb7748cc7bdfb728"
     },
     {
       "path": "packages/core/tsconfig.json",
