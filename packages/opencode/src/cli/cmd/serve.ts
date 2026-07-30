@@ -3,6 +3,22 @@ import { effectCmd } from "../effect-cmd"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
 import { Flag } from "@opencode-ai/core/flag/flag"
 
+const shutdownSignal = Effect.promise(
+  () =>
+    new Promise<void>((resolve) => {
+      const cleanup = () => {
+        process.off("SIGINT", shutdown)
+        process.off("SIGTERM", shutdown)
+      }
+      const shutdown = () => {
+        cleanup()
+        resolve()
+      }
+      process.once("SIGINT", shutdown)
+      process.once("SIGTERM", shutdown)
+    }),
+)
+
 export const ServeCommand = effectCmd({
   command: "serve",
   builder: (yargs) => withNetworkOptions(yargs),
@@ -19,6 +35,6 @@ export const ServeCommand = effectCmd({
     const server = yield* Effect.promise(() => Server.listen(opts))
     console.log(`opencode server listening on http://${server.hostname}:${server.port}`)
 
-    yield* Effect.never
+    yield* shutdownSignal.pipe(Effect.ensuring(Effect.promise(() => server.stop(true))))
   }),
 })
