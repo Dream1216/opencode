@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-30T13:37:46.461Z",
+  "generatedAt": "2026-07-30T14:52:47.718Z",
   "algorithm": "sha256",
   "exclusions": {
     "names": [
@@ -24,10 +24,10 @@
       ".tsbuildinfo"
     ]
   },
-  "fileCount": 6488,
+  "fileCount": 6491,
   "symlinkCount": 60,
-  "totalBytes": 127081096,
-  "treeDigest": "c5569d32fb2c465df893588276199cced9eaae9e9dd0a1dd958b36e534769c8e",
+  "totalBytes": 127108065,
+  "treeDigest": "c13803b8082921df49482ce38aaaeb4bba2ce0f1f1c3b93b3de7724d0b8d3bc6",
   "entries": [
     {
       "path": ".dockerignore",
@@ -882,6 +882,13 @@
       "bytes": 1496,
       "executable": false,
       "sha256": "9dc803e8d61ac4933b51a57ee2011436eb50eebb64871372cba2c2d748610a97"
+    },
+    {
+      "path": "docs/p7.7.4-governed-multi-instance-worker-recovery.md",
+      "type": "file",
+      "bytes": 2514,
+      "executable": false,
+      "sha256": "89a2683e9ee381dc662969014b33f85ccb1835bc091802ff834a6225173ca64f"
     },
     {
       "path": "flake.lock",
@@ -11063,9 +11070,9 @@
     {
       "path": "packages/core/src/database/postgres/worker-queue-telemetry.ts",
       "type": "file",
-      "bytes": 5897,
+      "bytes": 13016,
       "executable": false,
-      "sha256": "777e648109f857ec910d3632b7ecc6f9faf53838f6a0f6c205eb37ca697ecf2a"
+      "sha256": "e1a41751d4151a27e2d1b3075a2e0a8e3be82ab8fd664caadc27594743ce4233"
     },
     {
       "path": "packages/core/src/database/schema.gen.ts",
@@ -12533,9 +12540,16 @@
     {
       "path": "packages/core/src/session/worker-queue.ts",
       "type": "file",
-      "bytes": 11990,
+      "bytes": 12490,
       "executable": false,
-      "sha256": "ebf5b2e9fdd7e74e853110695984a0b38869b9858aec578c17f549be6472ae0f"
+      "sha256": "4d046892e434e12aaa777a18cd5a57a7242deef3a6ff0839faa59e3b24d7f9d6"
+    },
+    {
+      "path": "packages/core/src/session/worker-recovery-governance.ts",
+      "type": "file",
+      "bytes": 8038,
+      "executable": false,
+      "sha256": "006f0bf74f65f4268021a4bb4611e8e53347a5d0b8f64ca4b144f31bd0c51412"
     },
     {
       "path": "packages/core/src/session/workflow.md",
@@ -14258,6 +14272,13 @@
       "bytes": 2739,
       "executable": false,
       "sha256": "deab704040d7d08c996f2c550ee788f4832313060d8d50c1949ed6a94fdc3a05"
+    },
+    {
+      "path": "packages/core/test/worker-recovery-governance.test.ts",
+      "type": "file",
+      "bytes": 3865,
+      "executable": false,
+      "sha256": "d6e0e44879f7aa6738203860cb8f4a3186f93d1eb19ec6e1c2e5462e7d83d6a9"
     },
     {
       "path": "packages/core/tsconfig.json",
@@ -20554,9 +20575,9 @@
     {
       "path": "packages/opencode/src/session/prompt.ts",
       "type": "file",
-      "bytes": 69635,
+      "bytes": 70602,
       "executable": false,
-      "sha256": "e5e119c7e7b4995f035d9428157ceb4bbe7472386d2d38edf984bcc87f945391"
+      "sha256": "28e781d098b53dfea69f3fe1d0d3410fe9df2fefe5cf98f29ff4360a8f010a7f"
     },
     {
       "path": "packages/opencode/src/session/prompt/anthropic.txt",
@@ -20736,9 +20757,9 @@
     {
       "path": "packages/opencode/src/session/worker-recovery.ts",
       "type": "file",
-      "bytes": 2803,
+      "bytes": 5560,
       "executable": false,
-      "sha256": "db34eed234d42b30ece2f5e9c24400b280ca17782d08d129c1d066e394a66c59"
+      "sha256": "a1c3979929f7da5e7fbd43f1b4f2273ed3a474af8b4162b5db483a2dafc56f70"
     },
     {
       "path": "packages/opencode/src/shadow-agent-run/event-store.ts",
@@ -23298,9 +23319,9 @@
     {
       "path": "packages/opencode/test/session/worker-recovery.test.ts",
       "type": "file",
-      "bytes": 1363,
+      "bytes": 2572,
       "executable": false,
-      "sha256": "05d0ed70f9f1bc1264301c6238f4e70a29619ae3ae9d5494122c0b2ffafbe3cd"
+      "sha256": "2e622e995a9a30aa44cfe545945c81f3f96e397220990473c90aa1065b00174b"
     },
     {
       "path": "packages/opencode/test/shadow-agent-run/event-store.test.ts",

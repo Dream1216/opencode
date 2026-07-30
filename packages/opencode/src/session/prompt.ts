@@ -112,6 +112,17 @@ export interface Interface {
   readonly command: (input: CommandInput) => Effect.Effect<SessionV1.WithParts, Image.Error>
   readonly resolvePromptParts: (template: string) => Effect.Effect<PromptInput["parts"]>
   readonly recoverWorkspaceQueue: Effect.Effect<never>
+  readonly recoverWorkspaceQueueOnce: (input?: {
+    readonly tenantID?: string
+  }) => Effect.Effect<WorkspaceRecoveryResult>
+}
+
+export type WorkspaceRecoveryResult = {
+  readonly status: "idle" | "completed" | "failed"
+  readonly tenantID?: string
+  readonly runID?: string
+  readonly generation?: number
+  readonly fencingToken?: number
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionPrompt") {}
@@ -1402,10 +1413,11 @@ const layer = Layer.effect(
       const exit = yield* Effect.raceFirst(run, heartbeat).pipe(Effect.exit)
       if (Exit.isSuccess(exit)) {
         yield* workerQueue.complete(claim)
-        return
+        return "completed" as const
       }
       yield* state.cancel(sessionID)
       yield* workerQueue.fail(claim, Cause.pretty(exit.cause))
+      return "failed" as const
     })
 
     const consumeQueuedGeneration = Effect.fn("SessionPrompt.consumeQueuedGeneration")(function* (
@@ -1423,16 +1435,33 @@ const layer = Layer.effect(
       yield* Effect.raceFirst(workerQueue.awaitCompletion(sessionID, generation), consume)
     })
 
+    const recoverWorkspaceQueueOnce = Effect.fn("SessionPrompt.recoverWorkspaceQueueOnce")(function* (
+      input: { readonly tenantID?: string } = {},
+    ) {
+      const directory = (yield* InstanceState.context).directory
+      if (workerQueue.consumerMode !== "legacy-prompt") return { status: "idle" as const }
+      const claim = yield* workerQueue.claim({
+        workspaceDirectory: directory,
+        tenantID: input.tenantID,
+      })
+      if (claim === undefined) return { status: "idle" as const }
+      const status = yield* processQueueClaim(claim)
+      return {
+        status,
+        tenantID: claim.tenantID,
+        runID: claim.runID,
+        generation: claim.claimedGeneration,
+        fencingToken: claim.claimToken,
+      }
+    })
+
     const recoverWorkspaceQueue = Effect.gen(function* () {
       const directory = (yield* InstanceState.context).directory
-      if (workerQueue.consumerMode !== "legacy-prompt") return yield* Effect.never
       yield* Effect.logInfo("starting PostgreSQL workspace recovery consumer", { directory })
       return yield* Effect.forever(
-        Effect.gen(function* () {
-          const claim = yield* workerQueue.claim({ workspaceDirectory: directory })
-          if (claim !== undefined) yield* processQueueClaim(claim)
-          yield* Effect.sleep(workerQueue.pollIntervalMs)
-        }),
+        recoverWorkspaceQueueOnce().pipe(
+          Effect.andThen(Effect.sleep(workerQueue.pollIntervalMs)),
+        ),
       )
     })
 
@@ -1596,6 +1625,7 @@ const layer = Layer.effect(
       command,
       resolvePromptParts,
       recoverWorkspaceQueue,
+      recoverWorkspaceQueueOnce,
     })
   }),
 )

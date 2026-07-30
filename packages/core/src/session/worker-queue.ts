@@ -32,6 +32,7 @@ export type Interface = {
   readonly claim: (input?: {
     readonly sessionID?: SessionSchema.ID
     readonly workspaceDirectory?: string
+    readonly tenantID?: string
   }) => Effect.Effect<WorkerJobClaim | undefined>
   readonly heartbeat: (claim: WorkerJobClaim) => Effect.Effect<WorkerJobClaim>
   readonly complete: (claim: WorkerJobClaim) => Effect.Effect<void>
@@ -153,10 +154,12 @@ export function layerFromEnv(
           Effect.gen(function* () {
             const sessionID = input.sessionID
             const workspaceDirectory = normalizeWorkspace(input.workspaceDirectory)
+            const tenantID = input.tenantID?.trim()
             if (settings.consumerMode === "legacy-prompt" && workspaceDirectory === undefined) return
             if (sessionID !== undefined) {
               const tenant = yield* tenantFor(sessionID)
               if (tenant === undefined) return
+              if (tenantID !== undefined && tenant.tenantID !== tenantID) return
               return yield* db(() =>
                 claimNextWorkerJob(sql, {
                   tenant,
@@ -165,6 +168,13 @@ export function layerFromEnv(
                   runID: sessionID,
                   workspaceDirectory,
                 }),
+              )
+            }
+            if (tenantID !== undefined) {
+              const tenant = settings.tenants.find((item) => item.tenantID === tenantID)
+              if (tenant === undefined) return
+              return yield* db(() =>
+                claimNextWorkerJob(sql, { tenant, ownerID, claimMs, workspaceDirectory }),
               )
             }
             for (let offset = 0; offset < settings.tenants.length; offset++) {
