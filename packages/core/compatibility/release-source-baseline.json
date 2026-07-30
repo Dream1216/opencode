@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-30T06:16:25.009Z",
+  "generatedAt": "2026-07-30T06:18:55.277Z",
   "algorithm": "sha256",
   "exclusions": {
     "names": [
@@ -13,13 +13,21 @@
       "target"
     ],
     "paths": [
+      ".opencode/package-lock.json",
+      ".opencode/package.json",
       "packages/core/compatibility/release-source-baseline.json"
+    ],
+    "prefixes": [
+      ".husky/_"
+    ],
+    "suffixes": [
+      ".tsbuildinfo"
     ]
   },
-  "fileCount": 6500,
+  "fileCount": 6480,
   "symlinkCount": 60,
-  "totalBytes": 127111903,
-  "treeDigest": "4c76cd86eba3860e57191c365bc5a7a6e8309cef288b9c28a82e36e99f499ade",
+  "totalBytes": 127042642,
+  "treeDigest": "d7ca7b2308ff51e6760443b1c9e2ee08e2290f74e6f417483cbe34763c0cca1e",
   "entries": [
     {
       "path": ".dockerignore",
@@ -309,125 +317,6 @@
       "sha256": "73d99e5b8e5b36f1c6aa545f7c84c1bfb4e70037c0443b227842ec6161f96c3e"
     },
     {
-      "path": ".husky/_/.gitignore",
-      "type": "file",
-      "bytes": 1,
-      "executable": false,
-      "sha256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1"
-    },
-    {
-      "path": ".husky/_/applypatch-msg",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/commit-msg",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/h",
-      "type": "file",
-      "bytes": 551,
-      "executable": false,
-      "sha256": "70200b200ca709b0622784f93839a5b2872333a917a09afddefd7dc2d8cdc680"
-    },
-    {
-      "path": ".husky/_/husky.sh",
-      "type": "file",
-      "bytes": 160,
-      "executable": false,
-      "sha256": "21122903fca7209a13c991e5be68780636e28f1b8f0ae7ea07ed0065dfe37268"
-    },
-    {
-      "path": ".husky/_/post-applypatch",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/post-checkout",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/post-commit",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/post-merge",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/post-rewrite",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/pre-applypatch",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/pre-auto-gc",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/pre-commit",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/pre-merge-commit",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/pre-push",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/pre-rebase",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
-      "path": ".husky/_/prepare-commit-msg",
-      "type": "file",
-      "bytes": 39,
-      "executable": true,
-      "sha256": "34fe496008be71d8fdd446b2cce81e4bb0406109c130eafc583fbd9fe33244e2"
-    },
-    {
       "path": ".husky/pre-push",
       "type": "file",
       "bytes": 812,
@@ -643,20 +532,6 @@
       "bytes": 491,
       "executable": false,
       "sha256": "4d8072d04ddbdb8b4ccc46e055079a518728ac60044667137516c762d19f300c"
-    },
-    {
-      "path": ".opencode/package-lock.json",
-      "type": "file",
-      "bytes": 14626,
-      "executable": false,
-      "sha256": "815f435618f027eed0dc120edac10408a1ca5b08c34284801feb5b937073070d"
-    },
-    {
-      "path": ".opencode/package.json",
-      "type": "file",
-      "bytes": 64,
-      "executable": false,
-      "sha256": "00b9623ce1e46bb9a4d6bc17a6428516140bbb27d44d05ec9a776fa776f34ee7"
     },
     {
       "path": ".opencode/plugins/smoke-theme.json",
@@ -969,9 +844,9 @@
     {
       "path": "docs/p7.4.0-reproducible-release-source-baseline.md",
       "type": "file",
-      "bytes": 2933,
+      "bytes": 3023,
       "executable": false,
-      "sha256": "e6a112813239a5053a542dd6fff08772e4b443c807497424a20093506a30822c"
+      "sha256": "68e6c99fc7846515327c3319aba04fdf9dba79d340830181e01dcd1769089bd7"
     },
     {
       "path": "flake.lock",
@@ -10215,9 +10090,9 @@
     {
       "path": "packages/core/script/release-source-baseline.ts",
       "type": "file",
-      "bytes": 3655,
+      "bytes": 4099,
       "executable": false,
-      "sha256": "c7cecbce1cbf81a1ea97a88e2fa7d0dba303da13b533877be8b38b0d1012b38d"
+      "sha256": "b68bdbdd38ae8ad3b6b6d784bfd8c3c451ffabefb74a7239e12c611a940d4227"
     },
     {
       "path": "packages/core/script/shadow-canary-breaker-postgres-smoke.ts",
@@ -25092,13 +24967,6 @@
       "bytes": 358,
       "executable": false,
       "sha256": "a6ab4dce5d1f024b09dd0904592d3ece9e0aa3a359dce68c36927f8459417350"
-    },
-    {
-      "path": "packages/sdk/js/tsconfig.tsbuildinfo",
-      "type": "file",
-      "bytes": 53847,
-      "executable": false,
-      "sha256": "33f06f82ebfdf230c2f65a7bff4b08114e6dff61928b7fa3a38dbd9b6f9c1749"
     },
     {
       "path": "packages/sdk/openapi.json",

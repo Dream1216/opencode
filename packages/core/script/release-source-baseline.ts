@@ -20,8 +20,12 @@ type Entry =
 
 const excludedNames = new Set([".DS_Store", ".git", ".cache", ".turbo", "dist", "node_modules", "target"])
 const excludedPaths = new Set([
+  ".opencode/package-lock.json",
+  ".opencode/package.json",
   "packages/core/compatibility/release-source-baseline.json",
 ])
+const excludedPrefixes = new Set([".husky/_"])
+const excludedSuffixes = [".tsbuildinfo"]
 
 const root = path.resolve(requiredArgument("--root"))
 const output = path.resolve(requiredArgument("--output"))
@@ -43,6 +47,8 @@ const result = {
   exclusions: {
     names: [...excludedNames].sort(),
     paths: [...excludedPaths].sort(),
+    prefixes: [...excludedPrefixes].sort(),
+    suffixes: [...excludedSuffixes].sort(),
   },
   fileCount: entries.filter((entry) => entry.type === "file").length,
   symlinkCount: entries.filter((entry) => entry.type === "symlink").length,
@@ -98,6 +104,10 @@ async function visit(absoluteDirectory: string, relativeDirectory: string) {
 
 function excluded(relative: string) {
   if (excludedPaths.has(relative)) return true
+  if ([...excludedPrefixes].some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))) {
+    return true
+  }
+  if (excludedSuffixes.some((suffix) => relative.endsWith(suffix))) return true
   return relative.split("/").some((segment) => excludedNames.has(segment))
 }
 
