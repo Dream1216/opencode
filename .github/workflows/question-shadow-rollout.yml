@@ -56,6 +56,7 @@ jobs:
           CURRENT_SAMPLE_RATE: ${{ inputs.current_sample_rate }}
           REQUESTED_SAMPLE_RATE: ${{ inputs.requested_sample_rate }}
         run: |
+          set -o pipefail
           ssh "$DEPLOY_USER@$DEPLOY_HOST" \
             "/usr/local/sbin/opencode-question-shadow-ci-gate '$CURRENT_SAMPLE_RATE' '$REQUESTED_SAMPLE_RATE'" \
             | tee question-shadow-gate.json
