@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "1.18.7",
+  "version": "1.18.9",
   "name": "opencode",
   "type": "module",
   "license": "MIT",
@@ -8,6 +8,8 @@
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "test": "bun test --timeout 30000 --only-failures",
+    "test:shadow-agent-run": "bun run script/shadow-agent-run-smoke.ts",
+    "test:tool-governance": "bun run script/tool-governance-smoke.ts",
     "test:httpapi": "bun run script/httpapi-exercise.ts --mode coverage --fail-on-missing --fail-on-skip && bun run script/httpapi-exercise.ts --mode auth --fail-on-missing --fail-on-skip && bun run script/httpapi-exercise.ts --mode effect --fail-on-missing --fail-on-skip",
     "bench:test": "bun run script/bench-test-suite.ts",
     "profile:test": "bun run script/profile-test-files.ts",
@@ -80,7 +82,6 @@
     "@effect/platform-node": "catalog:",
     "@ff-labs/fff-bun": "0.9.4",
     "@gitlab/opencode-gitlab-auth": "1.3.3",
-    "@modelcontextprotocol/sdk": "1.29.0",
     "@octokit/graphql": "9.0.2",
     "@octokit/rest": "catalog:",
     "@openauthjs/openauth": "catalog:",
@@ -120,7 +121,7 @@
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "fuzzysort": "3.1.0",
-    "gitlab-ai-provider": "6.11.1",
+    "gitlab-ai-provider": "6.12.0",
     "glob": "13.0.5",
     "google-auth-library": "10.5.0",
     "gray-matter": "4.0.3",
@@ -150,7 +151,8 @@
     "ws": "8.21.0",
     "xdg-basedir": "5.1.0",
     "yargs": "18.0.0",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "@modelcontextprotocol/sdk": "1.29.0"
   },
   "overrides": {
     "drizzle-orm": "catalog:"

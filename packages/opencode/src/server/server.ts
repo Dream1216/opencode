@@ -2,6 +2,7 @@ import "./init-projectors"
 
 import { NodeHttpServer } from "@effect/platform-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { SaasIdentity } from "@opencode-ai/core/identity/saas-auth"
 import { ConfigProvider, Context, Effect, Exit, Layer, Scope } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { OpenApi } from "effect/unstable/httpapi"
@@ -82,6 +83,7 @@ export async function listen(opts: ListenOptions): Promise<Listener> {
 
 const listenEffect: (opts: ListenOptions) => Effect.Effect<EffectListener, unknown> = Effect.fn("Server.listen")(
   function* (opts: ListenOptions) {
+    yield* Effect.promise(() => SaasIdentity.bootstrap())
     const state = yield* startWithPortFallback(opts)
     const address = yield* tcpAddress(state)
     const listenerUrl = makeURL(opts.hostname, address.port)

@@ -87,6 +87,30 @@ export default {
         );
       `)
       yield* tx.run(`
+        CREATE TABLE \`postgres_replication_outbox\` (
+          \`sequence\` integer PRIMARY KEY AUTOINCREMENT,
+          \`id\` text NOT NULL UNIQUE,
+          \`operation\` text NOT NULL,
+          \`event_id\` text,
+          \`tenant_id\` text NOT NULL,
+          \`actor_id\` text NOT NULL,
+          \`aggregate_id\` text NOT NULL,
+          \`seq\` integer,
+          \`type\` text,
+          \`data\` text,
+          \`owner_id\` text,
+          \`status\` text DEFAULT 'pending' NOT NULL,
+          \`attempts\` integer DEFAULT 0 NOT NULL,
+          \`next_attempt_at\` integer DEFAULT 0 NOT NULL,
+          \`lease_owner\` text,
+          \`lease_expires_at\` integer,
+          \`last_error\` text,
+          \`time_created\` integer NOT NULL,
+          \`time_updated\` integer NOT NULL,
+          \`time_applied\` integer
+        );
+      `)
+      yield* tx.run(`
         CREATE TABLE \`permission\` (
           \`id\` text PRIMARY KEY,
           \`project_id\` text NOT NULL,
@@ -238,6 +262,13 @@ export default {
       `)
       yield* tx.run(`CREATE UNIQUE INDEX \`event_aggregate_seq_idx\` ON \`event\` (\`aggregate_id\`,\`seq\`);`)
       yield* tx.run(`CREATE INDEX \`event_aggregate_type_seq_idx\` ON \`event\` (\`aggregate_id\`,\`type\`,\`seq\`);`)
+      yield* tx.run(`CREATE INDEX \`event_type_aggregate_seq_idx\` ON \`event\` (\`type\`,\`aggregate_id\`,\`seq\`);`)
+      yield* tx.run(
+        `CREATE INDEX \`postgres_replication_outbox_pending_idx\` ON \`postgres_replication_outbox\` (\`status\`,\`next_attempt_at\`,\`lease_expires_at\`,\`sequence\`);`,
+      )
+      yield* tx.run(
+        `CREATE INDEX \`postgres_replication_outbox_aggregate_idx\` ON \`postgres_replication_outbox\` (\`tenant_id\`,\`aggregate_id\`,\`sequence\`);`,
+      )
       yield* tx.run(
         `CREATE UNIQUE INDEX \`permission_project_action_resource_idx\` ON \`permission\` (\`project_id\`,\`action\`,\`resource\`);`,
       )

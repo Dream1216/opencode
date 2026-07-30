@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "upstreamRepository": "anomalyco/opencode",
+  "upstreamTag": "v1.18.9",
+  "previousOverlay": "v1.18.8",
+  "sourceArchiveSha256": "6f076b8b87a56b7a353d312c7be0449257c6fa18e963a4e10433fe35420de079",
+  "officialDelta": {
+    "added": 12,
+    "deleted": 2,
+    "modified": 76,
+    "total": 90
+  },
+  "localGitHeadAtSync": "02981844b88aed33f06f1527da6c58d137975069",
+  "preservedDirtyWorktree": true,
+  "mergeMethod": "isolated v1.18.8/local/v1.18.9 three-way overlay",
+  "rollbackManifest": "/Users/dream/claude/opencode-upgrade-backups/v1.18.9-20260729160530/manifest.json",
+  "recordedAt": "2026-07-29T08:23:05Z"
+}

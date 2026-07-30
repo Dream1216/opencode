@@ -15,6 +15,9 @@
     "noEmit": true,
     "emitDeclarationOnly": false,
     "outDir": "node_modules/.ts-dist",
+    "paths": {
+      "@/*": ["../app/src/*"]
+    },
     "types": ["vite/client", "node", "electron"]
   },
   "references": [{ "path": "../app" }],

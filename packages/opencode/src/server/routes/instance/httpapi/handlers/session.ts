@@ -38,6 +38,7 @@ import {
 } from "../groups/session"
 import { PermissionNotFoundError } from "../errors"
 import * as SessionError from "./session-errors"
+import { ExecutionResourceBinding } from "@opencode-ai/core/identity/execution-resource-binding"
 
 const tryParseJson = (text: string) =>
   Effect.try({
@@ -61,9 +62,28 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const events = yield* EventV2Bridge.Service
     const scope = yield* Scope.Scope
 
+    const executionContext = Effect.fn("SessionHttpApi.executionContext")(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest
+      return ExecutionResourceBinding.requestContext(request.source)
+    })
+
+    const bindCurrentProject = Effect.fn("SessionHttpApi.bindCurrentProject")(function* () {
+      const binding = yield* executionContext()
+      if (!binding) return
+      const current = yield* InstanceState.context
+      return yield* Effect.promise(() =>
+        ExecutionResourceBinding.bindProject(binding, {
+          projectID: current.project.id,
+          worktree: current.project.worktree,
+        }),
+      )
+    })
+
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
+      const binding = yield* executionContext()
+      if (binding) yield* bindCurrentProject()
       const directory = ctx.query.directory ? yield* InstanceState.directory : undefined
-      return yield* session.list({
+      const sessions = yield* session.list({
         directory: ctx.query.scope === "project" ? undefined : directory,
         scope: ctx.query.scope,
         path: ctx.query.path,
@@ -72,13 +92,28 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         search: ctx.query.search,
         limit: ctx.query.limit,
       })
+      if (!binding) return sessions
+      const allowed = new Set(
+        yield* Effect.promise(() => ExecutionResourceBinding.allowedResourceIDs(binding, "session")),
+      )
+      return sessions.filter((item) => allowed.has(item.id))
     })
 
     const status = Effect.fn("SessionHttpApi.status")(function* () {
-      return Object.fromEntries(yield* statusSvc.list())
+      const items = Array.from(yield* statusSvc.list())
+      const binding = yield* executionContext()
+      if (!binding) return Object.fromEntries(items)
+      const allowed = new Set(
+        yield* Effect.promise(() => ExecutionResourceBinding.allowedResourceIDs(binding, "session")),
+      )
+      return Object.fromEntries(items.filter(([sessionID]) => allowed.has(sessionID)))
     })
 
     const requireSession = Effect.fn("SessionHttpApi.requireSession")(function* (sessionID: SessionID) {
+      const binding = yield* executionContext()
+      if (binding) {
+        yield* Effect.promise(() => ExecutionResourceBinding.assertResource(binding, "session", sessionID))
+      }
       return yield* SessionError.mapStorageNotFound(session.get(sessionID))
     })
 
@@ -153,7 +188,18 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     const create = Effect.fn("SessionHttpApi.create")(function* (ctx: { payload?: Session.CreateInput }) {
-      return yield* shareSvc.create(ctx.payload)
+      const binding = yield* executionContext()
+      if (binding) yield* bindCurrentProject()
+      const created = yield* shareSvc.create(ctx.payload)
+      if (binding) {
+        yield* Effect.promise(() =>
+          ExecutionResourceBinding.bindSession(binding, {
+            sessionID: created.id,
+            projectID: created.projectID,
+          }),
+        )
+      }
+      return created
     })
 
     const createRaw = Effect.fn("SessionHttpApi.createRaw")(function* (ctx: {
@@ -207,12 +253,22 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload?: typeof ForkPayload.Type
     }) {
-      return yield* SessionError.mapStorageNotFound(
+      const binding = yield* executionContext()
+      const created = yield* SessionError.mapStorageNotFound(
         session.fork({
           sessionID: ctx.params.sessionID,
           messageID: ctx.payload?.messageID,
         }),
       )
+      if (binding) {
+        yield* Effect.promise(() =>
+          ExecutionResourceBinding.bindSession(binding, {
+            sessionID: created.id,
+            projectID: created.projectID,
+          }),
+        )
+      }
+      return created
     })
 
     const forkRaw = Effect.fn("SessionHttpApi.forkRaw")(function* (ctx: {

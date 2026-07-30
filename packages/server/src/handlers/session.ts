@@ -12,6 +12,8 @@ import {
   UnknownError,
 } from "@opencode-ai/protocol/errors"
 import { AbsolutePath } from "@opencode-ai/core/schema"
+import { ExecutionResourceBinding } from "@opencode-ai/core/identity/execution-resource-binding"
+import { HttpServerRequest } from "effect/unstable/http"
 
 const DefaultSessionsLimit = 50
 const DefaultSessionHistoryLimit = 50
@@ -19,6 +21,11 @@ const DefaultSessionHistoryLimit = 50
 export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* SessionV2.Service
+
+    const executionContext = Effect.fn("SessionV2HttpApi.executionContext")(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest
+      return ExecutionResourceBinding.requestContext(request.source)
+    })
 
     return handlers
       .handle(
@@ -35,10 +42,17 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
             workspaceID: query.workspace,
             limit: ctx.query.limit ?? DefaultSessionsLimit,
           })
-          const first = sessions[0]
-          const last = sessions.at(-1)
+          const binding = yield* executionContext()
+          const allowed = binding
+            ? new Set(
+                yield* Effect.promise(() => ExecutionResourceBinding.allowedResourceIDs(binding, "session")),
+              )
+            : undefined
+          const visible = allowed ? sessions.filter((item) => allowed.has(item.id)) : sessions
+          const first = visible[0]
+          const last = visible.at(-1)
           return {
-            data: sessions,
+            data: visible,
             cursor: {
               previous: first
                 ? SessionsCursor.make({
@@ -67,22 +81,47 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.create",
         Effect.fn(function* (ctx) {
+          const binding = yield* executionContext()
+          const created = yield* session.create({
+            id: ctx.payload.id,
+            agent: ctx.payload.agent,
+            model: ctx.payload.model,
+            location: ctx.payload.location ?? { directory: AbsolutePath.make(process.cwd()) },
+          })
+          if (binding) {
+            yield* Effect.promise(() =>
+              ExecutionResourceBinding.bindProject(binding, {
+                projectID: created.projectID,
+                worktree: created.location.directory,
+              }),
+            )
+            yield* Effect.promise(() =>
+              ExecutionResourceBinding.bindSession(binding, {
+                sessionID: created.id,
+                projectID: created.projectID,
+              }),
+            )
+          }
           return {
-            data: yield* session.create({
-              id: ctx.payload.id,
-              agent: ctx.payload.agent,
-              model: ctx.payload.model,
-              location: ctx.payload.location ?? { directory: AbsolutePath.make(process.cwd()) },
-            }),
+            data: created,
           }
         }),
       )
       .handle(
         "session.active",
         Effect.fn(function* () {
+          const binding = yield* executionContext()
+          const allowed = binding
+            ? new Set(
+                yield* Effect.promise(() => ExecutionResourceBinding.allowedResourceIDs(binding, "session")),
+              )
+            : undefined
           return {
             data: Object.fromEntries(
-              Array.from(yield* session.active, (sessionID) => [sessionID, { type: "running" as const }]),
+              Array.from(
+                yield* session.active,
+                (sessionID) => [sessionID, { type: "running" as const }] as const,
+              ).filter(([sessionID]) => allowed === undefined || allowed.has(sessionID)),
             ),
           }
         }),

@@ -65,6 +65,8 @@ import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 import { legacySessionHref, legacySessionServer, requireServerKey, sessionHref } from "./utils/session-route"
 import { createSessionLineage } from "@/pages/session/session-lineage"
+import { SaasAuthGate } from "@/context/saas-auth"
+import { OrganizationGate } from "@/context/organization"
 
 import { SessionPage, SessionRouteErrorBoundary, TargetSessionRouteContent } from "@/pages/session"
 import { NewHome } from "@/pages/home"
@@ -266,10 +268,12 @@ declare global {
     __OPENCODE__?: {
       deepLinks?: string[]
     }
-    api?: {
-      setTitlebar?: (theme: { mode: "light" | "dark"; scheme?: "system" | "light" | "dark" }) => Promise<void>
-      exportDebugLogs?: () => Promise<string>
-    }
+  }
+}
+
+type DesktopTitlebarBridge = Window & {
+  api?: {
+    setTitlebar?: (theme: { mode: "light" | "dark"; scheme?: "system" | "light" | "dark" }) => Promise<void>
   }
 }
 
@@ -391,7 +395,7 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
       <Font />
       <ThemeProvider
         onThemeApplied={(_, mode, scheme) => {
-          void window.api?.setTitlebar?.({ mode, scheme })
+          void (window as DesktopTitlebarBridge).api?.setTitlebar?.({ mode, scheme })
         }}
       >
         <LanguageProvider locale={props.locale}>
@@ -576,28 +580,32 @@ export function AppInterface(props: {
     >
       <GlobalProvider>
         <SettingsProvider>
-          <ConnectionGate disableHealthCheck={props.disableHealthCheck} startup={props.startup}>
-            <Show when={useSettings().general.newLayoutDesigns().toString()} keyed>
-              <Dynamic
-                component={props.router ?? Router}
-                root={(routerProps) => (
-                  <TabsProvider>
-                    <PermissionProvider>
-                      <NotificationProvider>
-                        <ServerShell>
-                          <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
-                            <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
-                          </Show>
-                        </ServerShell>
-                      </NotificationProvider>
-                    </PermissionProvider>
-                  </TabsProvider>
-                )}
-              >
-                <Routes serverScoped={props.serverScoped} />
-              </Dynamic>
-            </Show>
-          </ConnectionGate>
+          <SaasAuthGate>
+            <OrganizationGate>
+              <ConnectionGate disableHealthCheck={props.disableHealthCheck} startup={props.startup}>
+                <Show when={useSettings().general.newLayoutDesigns().toString()} keyed>
+                  <Dynamic
+                    component={props.router ?? Router}
+                    root={(routerProps) => (
+                      <TabsProvider>
+                        <PermissionProvider>
+                          <NotificationProvider>
+                            <ServerShell>
+                              <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
+                                <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
+                              </Show>
+                            </ServerShell>
+                          </NotificationProvider>
+                        </PermissionProvider>
+                      </TabsProvider>
+                    )}
+                  >
+                    <Routes serverScoped={props.serverScoped} />
+                  </Dynamic>
+                </Show>
+              </ConnectionGate>
+            </OrganizationGate>
+          </SaasAuthGate>
         </SettingsProvider>
       </GlobalProvider>
     </ServerProvider>

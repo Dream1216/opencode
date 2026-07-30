@@ -85,10 +85,76 @@ function sessionInfo(session: Session): SessionInfo {
 
 export function createCompatibleApi(input: CompatibleInput): CompatibleApi {
   const v1 = createV1Api(input)
+  const v2 = createV2Api(input, v1)
   return lazyApi(
-    input.protocol.then((protocol) => (protocol === "v1" ? v1 : input.current)),
+    input.protocol.then((protocol) => (protocol === "v1" ? v1 : v2)),
     input.current,
   )
+}
+
+function createV2Api(input: CompatibleInput, v1: CompatibleApi): CompatibleApi {
+  const pendingV1 = new Set<string>()
+
+  const loadV1Questions = async () => {
+    try {
+      const result = await input.legacy(input.directory).question.list()
+      const requests = result.data ?? []
+      pendingV1.clear()
+      requests.forEach((request) => pendingV1.add(request.id))
+      return requests
+    } catch {
+      return []
+    }
+  }
+
+  const routeQuestion = async <T>(requestID: string, legacy: () => Promise<T>, current: () => Promise<T>) => {
+    if (!pendingV1.has(requestID)) await loadV1Questions()
+    if (!pendingV1.has(requestID)) return current()
+    const result = await legacy()
+    pendingV1.delete(requestID)
+    return result
+  }
+
+  return {
+    ...input.current,
+    question: {
+      ...input.current.question,
+      request: {
+        ...input.current.question.request,
+        async list(
+          value?: Parameters<ServerApi["question"]["request"]["list"]>[0],
+          options?: Parameters<ServerApi["question"]["request"]["list"]>[1],
+        ) {
+          const [result, legacy] = await Promise.all([
+            input.current.question.request.list(value, options),
+            loadV1Questions(),
+          ])
+          const requests = [...result.data]
+          const ids = new Set(requests.map((request) => request.id))
+          for (const request of legacy) {
+            if (ids.has(request.id)) continue
+            requests.push(request)
+            ids.add(request.id)
+          }
+          return { ...result, data: requests }
+        },
+      },
+      async reply(value: Parameters<ServerApi["question"]["reply"]>[0]) {
+        return routeQuestion(
+          value.requestID,
+          () => v1.question.reply(value),
+          () => input.current.question.reply(value),
+        )
+      },
+      async reject(value: Parameters<ServerApi["question"]["reject"]>[0]) {
+        return routeQuestion(
+          value.requestID,
+          () => v1.question.reject(value),
+          () => input.current.question.reject(value),
+        )
+      },
+    },
+  }
 }
 
 function lazyApi<T extends object>(implementation: Promise<T>, shape: T): T {
@@ -508,10 +574,14 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         await legacy().question.reply({
           requestID: value.requestID,
           answers: value.answers.map((answer) => [...answer]),
+          directory: directory(),
         })
       },
       async reject(value: Parameters<ServerApi["question"]["reject"]>[0]) {
-        await legacy().question.reject({ requestID: value.requestID })
+        await legacy().question.reject({
+          requestID: value.requestID,
+          directory: directory(),
+        })
       },
     },
   }

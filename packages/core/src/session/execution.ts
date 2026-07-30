@@ -5,6 +5,7 @@ import { LayerNode } from "../effect/layer-node"
 import { Node } from "../effect/app-node"
 import { SessionRunner } from "./runner/index"
 import { SessionSchema } from "./schema"
+import { SessionEvent } from "./event"
 
 export interface Interface {
   /** Snapshots active execution owned by this process. */
@@ -15,6 +16,8 @@ export interface Interface {
   readonly wake: (sessionID: SessionSchema.ID) => Effect.Effect<void>
   /** Interrupt active work owned by this process. Idle interruption is a no-op. */
   readonly interrupt: (sessionID: SessionSchema.ID) => Effect.Effect<void>
+  /** Replays durable worker lifecycle events for this Session. */
+  readonly replay: (sessionID: SessionSchema.ID) => Effect.Effect<ReadonlyArray<SessionEvent.DurableEvent>>
 }
 
 /** Routes execution from a Session ID to the runner owned by that Session's Location. */
@@ -30,5 +33,6 @@ export const noopLayer = Layer.succeed(
     resume: () => Effect.void,
     wake: () => Effect.void,
     interrupt: () => Effect.void,
+    replay: () => Effect.succeed([]),
   }),
 )

@@ -1,5 +1,6 @@
 import { GlobalBus } from "@/bus/global"
 import { InstanceStore } from "@/project/instance-store"
+import { flushShadowAgentRunProjector } from "@/shadow-agent-run/projector"
 import { Effect } from "effect"
 import { Event } from "./event"
 
@@ -21,6 +22,10 @@ export const disposeAllInstancesAndEmitGlobalDisposed = Effect.fn("Server.dispos
         ? store.disposeAll().pipe(Effect.catchCause((cause) => Effect.logWarning("global disposal failed", { cause })))
         : store.disposeAll()
       yield* emitGlobalDisposed
+      const flush = Effect.promise(() => flushShadowAgentRunProjector())
+      yield* options?.swallowErrors
+        ? flush.pipe(Effect.catchCause((cause) => Effect.logWarning("shadow projector flush failed", { cause })))
+        : flush
     }).pipe(Effect.uninterruptible)
   },
 )

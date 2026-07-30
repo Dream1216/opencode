@@ -1,0 +1,52 @@
+groups:
+  - name: opencode-question-shadow
+    rules:
+      - alert: OpenCodeQuestionShadowBreakerOpen
+        expr: max(opencode_question_shadow_breaker_open) == 1
+        for: 1m
+        labels:
+          severity: critical
+          action: rollback
+        annotations:
+          summary: OpenCode Question shadow breaker is open
+          description: Set the Question shadow sample rate to 0 and investigate command diff failures.
+
+      - alert: OpenCodeQuestionShadowNotReady
+        expr: max(opencode_question_shadow_sample_rate) > 0 and max(opencode_question_shadow_ready) == 0
+        for: 5m
+        labels:
+          severity: critical
+          action: rollback
+        annotations:
+          summary: OpenCode Question shadow is not ready
+          description: Hold promotion and roll the active sample stage back to 0.
+
+      - alert: OpenCodeQuestionShadowErrorRateHigh
+        expr: max(opencode_question_shadow_breaker_samples) >= 20 and max(opencode_question_shadow_error_rate) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          action: rollback
+        annotations:
+          summary: OpenCode Question shadow error rate exceeds 5 percent
+          description: The P7.3.6 automatic rollback threshold has been exceeded.
+
+      - alert: OpenCodeQuestionShadowDivergenceRateHigh
+        expr: max(opencode_question_shadow_breaker_samples) >= 20 and max(opencode_question_shadow_divergence_rate) > 0.10
+        for: 5m
+        labels:
+          severity: critical
+          action: rollback
+        annotations:
+          summary: OpenCode Question shadow divergence rate exceeds 10 percent
+          description: The P7.3.6 automatic rollback threshold has been exceeded.
+
+      - alert: OpenCodeQuestionShadowNoSamples
+        expr: max(opencode_question_shadow_sample_rate) > 0 and max(opencode_question_shadow_breaker_samples) == 0
+        for: 15m
+        labels:
+          severity: warning
+          action: hold
+        annotations:
+          summary: OpenCode Question shadow has no comparison samples
+          description: Hold promotion until traffic, metrics, and admission configuration are verified.

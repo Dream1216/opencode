@@ -12,6 +12,8 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { RootHttpApi } from "../api"
 import { GlobalUpgradeInput } from "../groups/global"
+import { SaasIdentity } from "@opencode-ai/core/identity/saas-auth"
+import { publicSaasConfig } from "../config-public"
 
 function eventData(data: unknown): Sse.Event {
   return {
@@ -80,13 +82,14 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
     })
 
     const configGet = Effect.fn("GlobalHttpApi.configGet")(function* () {
-      return yield* config.getGlobal()
+      const info = yield* config.getGlobal()
+      return SaasIdentity.enabled() ? publicSaasConfig(info) : info
     })
 
     const configUpdate = Effect.fn("GlobalHttpApi.configUpdate")(function* (ctx) {
       const result = yield* config.updateGlobal(ctx.payload)
       if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
-      return result.info
+      return SaasIdentity.enabled() ? publicSaasConfig(result.info) : result.info
     })
 
     const dispose = Effect.fn("GlobalHttpApi.dispose")(function* () {

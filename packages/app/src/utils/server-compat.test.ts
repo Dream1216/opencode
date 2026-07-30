@@ -4,13 +4,27 @@ import { createCompatibleApi } from "./server-compat"
 
 function setup(
   protocol: "v1" | "v2" | Promise<"v1" | "v2">,
-  responses?: { vcs?: { branch: string; default_branch: string } },
+  responses?: {
+    vcs?: { branch: string; default_branch: string }
+    legacyQuestions?: ReturnType<typeof question>[]
+    currentQuestions?: ReturnType<typeof question>[]
+  },
 ) {
   const requests: Request[] = []
   const fetcher = Object.assign(
     async (input: string | URL | Request, init?: RequestInit) => {
       const request = new Request(input, init)
       requests.push(request)
+      const url = new URL(request.url)
+      if (request.method === "GET" && url.pathname === "/question")
+        return Response.json(responses?.legacyQuestions ?? [])
+      if (request.method === "GET" && url.pathname === "/api/question/request")
+        return Response.json({
+          location: { directory: "/repo", project: { id: "project", directory: "/repo" } },
+          data: responses?.currentQuestions ?? [],
+        })
+      if (request.method === "POST" && /^\/question\/[^/]+\/(reply|reject)$/.test(url.pathname))
+        return Response.json(true)
       if (request.method === "PATCH") {
         return Response.json({
           id: "ses_1",
@@ -50,6 +64,20 @@ function setup(
     directory: "/repo",
   })
   return { api, requests }
+}
+
+function question(id: string) {
+  return {
+    id,
+    sessionID: "ses_1",
+    questions: [
+      {
+        question: id,
+        header: id,
+        options: [{ label: "yes", description: "yes" }],
+      },
+    ],
+  }
 }
 
 describe("createCompatibleApi", () => {
@@ -145,6 +173,50 @@ describe("createCompatibleApi", () => {
     await api.session.list()
 
     expect(detections).toBe(1)
+  })
+
+  test("merges V1 pending questions into the V2 request list", async () => {
+    const { api } = setup("v2", {
+      currentQuestions: [question("que_v2")],
+      legacyQuestions: [question("que_v1"), question("que_v2")],
+    })
+
+    const result = await api.question.request.list({ location: { directory: "/repo" } })
+
+    expect(result.data.map((request) => request.id)).toEqual(["que_v2", "que_v1"])
+  })
+
+  test("routes a restored V1 question reply through the legacy endpoint", async () => {
+    const { api, requests } = setup("v2", { legacyQuestions: [question("que_v1")] })
+    await api.question.request.list({ location: { directory: "/repo" } })
+
+    await api.question.reply({ sessionID: "ses_1", requestID: "que_v1", answers: [["yes"]] })
+
+    const request = new URL(requests.at(-1)!.url)
+    expect(request.pathname).toBe("/question/que_v1/reply")
+    expect(request.searchParams.get("directory")).toBe("/repo")
+  })
+
+  test("discovers a live V1 question before replying", async () => {
+    const { api, requests } = setup("v2", { legacyQuestions: [question("que_live")] })
+
+    await api.question.reply({ sessionID: "ses_1", requestID: "que_live", answers: [["yes"]] })
+
+    expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+      "/question",
+      "/question/que_live/reply",
+    ])
+  })
+
+  test("keeps native V2 question replies on the current endpoint", async () => {
+    const { api, requests } = setup("v2")
+
+    await api.question.reply({ sessionID: "ses_1", requestID: "que_v2", answers: [["yes"]] })
+
+    expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+      "/question",
+      "/api/session/ses_1/question/que_v2/reply",
+    ])
   })
 
   /*

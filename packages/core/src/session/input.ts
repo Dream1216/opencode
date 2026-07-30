@@ -6,6 +6,7 @@ import { Admitted, Delivery } from "@opencode-ai/schema/session-input"
 import type { Database } from "../database/database"
 import type { EventV2 } from "../event"
 import { SessionEvent } from "./event"
+import { SessionGovernance } from "./governance"
 import { SessionMessage } from "./message"
 import { Prompt } from "./prompt"
 import { SessionSchema } from "./schema"
@@ -219,9 +220,15 @@ const publish = Effect.fn("SessionInput.publish")(function* (
   sessionID: SessionSchema.ID,
   rows: ReadonlyArray<typeof SessionInputTable.$inferSelect>,
 ) {
+  const prompted: Array<{
+    readonly messageID: SessionMessage.ID
+    readonly delivery: Delivery
+    readonly admittedSeq: number
+    readonly promotedSeq: number
+  }> = []
   for (const row of rows) {
     const id = SessionMessage.ID.make(row.id)
-    yield* events
+    const event = yield* events
       .publish(SessionEvent.Prompted, {
         sessionID,
         timestamp: DateTime.makeUnsafe(row.time_created),
@@ -238,6 +245,24 @@ const publish = Effect.fn("SessionInput.publish")(function* (
             : Effect.die(defect),
         ),
       )
+    if (event?.durable !== undefined) {
+      prompted.push({
+        messageID: id,
+        delivery: row.delivery,
+        admittedSeq: row.admitted_seq,
+        promotedSeq: event.durable.seq,
+      })
+    }
+  }
+  for (const item of prompted) {
+    yield* SessionGovernance.recordPromptPrompted({
+      events,
+      sessionID,
+      messageID: item.messageID,
+      delivery: item.delivery,
+      admittedSeq: item.admittedSeq,
+      promotedSeq: item.promotedSeq,
+    })
   }
   return rows.length
 })

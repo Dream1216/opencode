@@ -3,11 +3,24 @@ import { Context, Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { EventV2 } from "@opencode-ai/core/event"
+import { Location } from "@opencode-ai/core/location"
 import { QuestionV2 } from "@opencode-ai/core/question"
+import { QuestionPersistence } from "@opencode-ai/core/question-persistence"
+import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { testEffect } from "./lib/effect"
+import { location } from "./fixture/location"
 
-const questions = AppNodeBuilder.build(LayerNode.group([EventV2.node, QuestionV2.node]))
+const locationLayer = Layer.succeed(
+  Location.Service,
+  Location.Service.of(location({ directory: AbsolutePath.make("/question-test") })),
+)
+const questions = AppNodeBuilder.build(
+  LayerNode.group([EventV2.node, QuestionPersistence.node, QuestionV2.node]),
+  [
+  [Location.node, locationLayer],
+  ],
+)
 const it = testEffect(questions)
 
 const sessionID = SessionV2.ID.make("ses_question_test")
@@ -25,7 +38,10 @@ const waitForAsk = Effect.fn("QuestionV2Test.waitForAsk")(function* (
   const asked = yield* Deferred.make<QuestionV2.Request>()
   const unsubscribe = yield* events.listen((event) =>
     event.type === QuestionV2.Event.Asked.type
-      ? Deferred.succeed(asked, event.data as QuestionV2.Request).pipe(Effect.asVoid)
+      ? Effect.sync(() => {
+          const { location: _, ...request } = event.data as QuestionV2.Request & { location: Location.Ref }
+          return request
+        }).pipe(Effect.flatMap((request) => Deferred.succeed(asked, request)), Effect.asVoid)
       : Effect.void,
   )
   yield* Effect.addFinalizer(() => unsubscribe)
@@ -53,10 +69,13 @@ describe("QuestionV2", () => {
 
       expect(yield* Fiber.join(fiber)).toEqual([["One"]])
       expect(yield* service.list()).toEqual([])
-      expect(published.map((event) => [event.type, event.data])).toEqual([
-        [QuestionV2.Event.Asked.type, request],
-        [QuestionV2.Event.Replied.type, { sessionID, requestID: request.id, answers: [["One"]] }],
+      expect(published.map((event) => event.type)).toEqual([
+        QuestionV2.Event.Asked.type,
+        QuestionV2.Event.Replied.type,
       ])
+      expect(published[0]?.data).toMatchObject(request)
+      expect(published[1]?.data).toEqual({ sessionID, requestID: request.id, answers: [["One"]] })
+      expect(published.map((event) => event.durable?.seq)).toEqual([0, 1])
     }),
   )
 
@@ -108,6 +127,51 @@ describe("QuestionV2", () => {
       const exit = yield* Fiber.await(fiber)
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) expect(exit.cause.toString()).toContain("QuestionV2.RejectedError")
+      yield* Scope.close(secondScope, Exit.void)
+    }),
+  )
+
+  it.effect("restores and settles a pending request after rebuilding the Question layer", () =>
+    Effect.gen(function* () {
+      const eventService = yield* EventV2.Service
+      const persistenceService = yield* QuestionPersistence.Service
+      const dependencies = Layer.mergeAll(
+        Layer.succeed(EventV2.Service, eventService),
+        Layer.succeed(QuestionPersistence.Service, persistenceService),
+        locationLayer,
+      )
+      const firstScope = yield* Scope.make()
+      const first = Context.get(
+        yield* Layer.buildWithScope(QuestionV2.locationLayer.pipe(Layer.provide(dependencies)), firstScope),
+        QuestionV2.Service,
+      )
+      const fiber = yield* first
+        .ask({
+          sessionID,
+          questions: [question],
+          tool: { messageID: "msg_recovery", callID: "call_recovery" },
+        })
+        .pipe(Effect.forkIn(firstScope, { startImmediately: true }))
+      yield* Effect.yieldNow
+      const request = (yield* first.list())[0]!
+      yield* Scope.close(firstScope, Exit.void)
+      expect(Exit.isFailure(yield* Fiber.await(fiber))).toBe(true)
+
+      const secondScope = yield* Scope.make()
+      const second = Context.get(
+        yield* Layer.buildWithScope(
+          Layer.fresh(QuestionV2.locationLayer).pipe(Layer.provide(dependencies)),
+          secondScope,
+        ),
+        QuestionV2.Service,
+      )
+      expect(yield* second.list()).toEqual([request])
+      expect(yield* second.reply({ requestID: request.id, answers: [["One"]] })).toEqual({
+        request,
+        recovered: true,
+      })
+      expect(yield* second.list()).toEqual([])
+
       yield* Scope.close(secondScope, Exit.void)
     }),
   )

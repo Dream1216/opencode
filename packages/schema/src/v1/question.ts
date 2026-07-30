@@ -3,6 +3,7 @@ export * as QuestionV1 from "./question"
 import { Schema } from "effect"
 import { define, inventory } from "../event"
 import { ascending } from "../identifier"
+import { Location } from "../location"
 import { statics } from "../schema"
 import { SessionID } from "../session-id"
 import { SessionV1 } from "./session"
@@ -38,6 +39,11 @@ export const Request = Schema.Struct({
   questions: Schema.Array(Info).annotate({ description: "Questions to ask" }),
   tool: Schema.optional(Tool),
 }).annotate({ identifier: "QuestionRequest" })
+export const AskedData = Schema.Struct({
+  ...Request.fields,
+  location: Location.Ref,
+})
+export type AskedData = typeof AskedData.Type
 export const Answer = Schema.Array(Schema.String).annotate({ identifier: "QuestionAnswer" })
 export const Reply = Schema.Struct({
   answers: Schema.Array(Answer).annotate({
@@ -55,12 +61,26 @@ export const Rejected = Schema.Struct({ sessionID: SessionID, requestID: ID }).a
   identifier: "QuestionRejected",
 })
 
-const Asked = define({ type: "question.asked", schema: Request.fields })
-const RepliedEvent = define({ type: "question.replied", schema: Replied.fields })
-const RejectedEvent = define({ type: "question.rejected", schema: Rejected.fields })
+const Asked = define({
+  type: "question.asked",
+  durable: { aggregate: "id", version: 1 },
+  schema: AskedData.fields,
+})
+const RepliedEvent = define({
+  type: "question.replied",
+  durable: { aggregate: "requestID", version: 1 },
+  schema: Replied.fields,
+})
+const RejectedEvent = define({
+  type: "question.rejected",
+  durable: { aggregate: "requestID", version: 1 },
+  schema: Rejected.fields,
+})
+const All = Schema.Union([Asked, RepliedEvent, RejectedEvent])
 export const Event = {
   Asked,
   Replied: RepliedEvent,
   Rejected: RejectedEvent,
+  All,
   Definitions: inventory(Asked, RepliedEvent, RejectedEvent),
 }

@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import { optional } from "./schema"
 import { define, inventory } from "./event"
 import { ascending } from "./identifier"
+import { Location } from "./location"
 import { SessionID } from "./session-id"
 import { statics } from "./schema"
 
@@ -67,9 +68,20 @@ export const Reply = Schema.Struct({
 }).annotate({ identifier: "QuestionV2.Reply" })
 export interface Reply extends Schema.Schema.Type<typeof Reply> {}
 
-const Asked = define({ type: "question.v2.asked", schema: Request.fields })
+const AskedData = Schema.Struct({
+  ...Request.fields,
+  location: Location.Ref,
+})
+export type AskedData = typeof AskedData.Type
+
+const Asked = define({
+  type: "question.v2.asked",
+  durable: { aggregate: "id", version: 1 },
+  schema: AskedData.fields,
+})
 const Replied = define({
   type: "question.v2.replied",
+  durable: { aggregate: "requestID", version: 1 },
   schema: {
     sessionID: SessionID,
     requestID: ID,
@@ -78,9 +90,25 @@ const Replied = define({
 })
 const Rejected = define({
   type: "question.v2.rejected",
+  durable: { aggregate: "requestID", version: 1 },
   schema: {
     sessionID: SessionID,
     requestID: ID,
   },
 })
-export const Event = { Asked, Replied, Rejected, Definitions: inventory(Asked, Replied, Rejected) }
+const RecoveryRequested = define({
+  type: "question.v2.recovery.requested",
+  schema: {
+    sessionID: SessionID,
+    requestID: ID,
+  },
+})
+const All = Schema.Union([Asked, Replied, Rejected, RecoveryRequested])
+export const Event = {
+  Asked,
+  Replied,
+  Rejected,
+  RecoveryRequested,
+  All,
+  Definitions: inventory(Asked, Replied, Rejected, RecoveryRequested),
+}

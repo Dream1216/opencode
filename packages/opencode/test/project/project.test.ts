@@ -148,6 +148,32 @@ describe("Project.fromDirectory", () => {
     }),
   )
 
+  it.live("scopes global project IDs by directory in SaaS mode", () =>
+    Effect.gen(function* () {
+      const previous = process.env.OPENCODE_SAAS_MODE
+      process.env.OPENCODE_SAAS_MODE = "true"
+      yield* Effect.addFinalizer(
+        () =>
+          Effect.sync(() => {
+            if (previous === undefined) delete process.env.OPENCODE_SAAS_MODE
+            else process.env.OPENCODE_SAAS_MODE = previous
+          }),
+      )
+
+      const project = yield* Project.Service
+      const firstDirectory = yield* tmpdirScoped()
+      const secondDirectory = yield* tmpdirScoped()
+      const first = yield* project.fromDirectory(firstDirectory)
+      const repeated = yield* project.fromDirectory(firstDirectory)
+      const second = yield* project.fromDirectory(secondDirectory)
+
+      expect(first.project.id).not.toBe(ProjectV2.ID.global)
+      expect(repeated.project.id).toBe(first.project.id)
+      expect(second.project.id).not.toBe(first.project.id)
+      expect(first.project.worktree).toBe(firstDirectory)
+    }),
+  )
+
   it.live("derives stable project ID from root commit", () =>
     Effect.gen(function* () {
       const project = yield* Project.Service

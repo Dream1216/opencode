@@ -4,6 +4,7 @@ import { HttpEffect, HttpRouter, HttpServerRequest, HttpServerResponse } from "e
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi"
 import { hasPtyConnectTicketURL } from "@/server/shared/pty-ticket"
 import { isPublicUIPath } from "@/server/shared/public-ui"
+import { SaasIdentity } from "@opencode-ai/core/identity/saas-auth"
 export {
   Authorization as ServerAuthorization,
   authorizationLayer as serverAuthorizationLayer,
@@ -12,6 +13,12 @@ export {
 const AUTH_TOKEN_QUERY = "auth_token"
 const UNAUTHORIZED = 401
 const WWW_AUTHENTICATE = 'Basic realm="Secure Area"'
+
+export function isPublicSaasHealthProbe(method: string, requestURL: string) {
+  if (method !== "GET") return false
+  const pathname = new URL(requestURL, "http://localhost").pathname
+  return pathname === "/global/health" || pathname === "/api/health"
+}
 
 // Avoid HttpApiSecurity alternatives here: Effect security middleware wraps the
 // full handler, so a downstream failure can make the next auth alternative run
@@ -101,12 +108,25 @@ function validateRawCredential<A, E, R>(
 export const authorizationRouterMiddleware = HttpRouter.middleware()(
   Effect.gen(function* () {
     const config = yield* ServerAuth.Config
-    if (!ServerAuth.required(config)) return (effect) => effect
+    if (!SaasIdentity.enabled() && !ServerAuth.required(config)) return (effect) => effect
 
     return (effect) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
         const url = new URL(request.url, "http://localhost")
+        if (SaasIdentity.enabled()) {
+          if (isPublicSaasHealthProbe(request.method, request.url)) return yield* effect
+          const destination = request.headers["sec-fetch-dest"]
+          const asset = /\.(?:css|js|map|png|jpe?g|gif|svg|ico|webp|woff2?|webmanifest)$/i.test(url.pathname)
+          if (request.method === "GET" && (destination === "document" || asset || url.pathname === "/")) {
+            return yield* effect
+          }
+          const session = yield* Effect.tryPromise(() =>
+            SaasIdentity.authenticate(new Headers(request.headers as HeadersInit)),
+          ).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          if (session !== undefined) return yield* effect
+          return HttpServerResponse.jsonUnsafe({ error: "authentication_required" }, { status: UNAUTHORIZED })
+        }
         if (isPublicUIPath(request.method, url.pathname)) return yield* effect
         return yield* credentialFromURL(url, request).pipe(
           Effect.flatMap((credential) => validateRawCredential(effect, credential, config)),
@@ -119,10 +139,18 @@ export const authorizationLayer = Layer.effect(
   Authorization,
   Effect.gen(function* () {
     const config = yield* ServerAuth.Config
-    if (!ServerAuth.required(config)) return Authorization.of((effect) => effect)
+    if (!SaasIdentity.enabled() && !ServerAuth.required(config)) return Authorization.of((effect) => effect)
     return Authorization.of((effect) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
+        if (SaasIdentity.enabled()) {
+          if (isPublicSaasHealthProbe(request.method, request.url)) return yield* effect
+          const session = yield* Effect.tryPromise(() =>
+            SaasIdentity.authenticate(new Headers(request.headers as HeadersInit)),
+          ).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          if (session === undefined) return yield* new HttpApiError.Unauthorized({})
+          return yield* effect
+        }
         return yield* credentialFromRequest(request).pipe(
           Effect.flatMap((credential) => validateCredential(effect, credential, config)),
         )
@@ -135,12 +163,19 @@ export const ptyConnectAuthorizationLayer = Layer.effect(
   PtyConnectAuthorization,
   Effect.gen(function* () {
     const config = yield* ServerAuth.Config
-    if (!ServerAuth.required(config)) return PtyConnectAuthorization.of((effect) => effect)
+    if (!SaasIdentity.enabled() && !ServerAuth.required(config)) return PtyConnectAuthorization.of((effect) => effect)
     return PtyConnectAuthorization.of((effect) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
         const url = new URL(request.url, "http://localhost")
         if (hasPtyConnectTicketURL(url)) return yield* effect
+        if (SaasIdentity.enabled()) {
+          const session = yield* Effect.tryPromise(() =>
+            SaasIdentity.authenticate(new Headers(request.headers as HeadersInit)),
+          ).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          if (session === undefined) return yield* new HttpApiError.Unauthorized({})
+          return yield* effect
+        }
         return yield* credentialFromURL(url, request).pipe(
           Effect.flatMap((credential) => validateCredential(effect, credential, config)),
         )

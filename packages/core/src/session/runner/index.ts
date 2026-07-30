@@ -7,6 +7,7 @@ import type { ContextSnapshotDecodeError, MessageDecodeError } from "../error"
 import { SessionRunnerModel } from "./model"
 import type { SystemContext } from "../../system-context/index"
 import type { ToolOutputStore } from "../../tool-output-store"
+import type { WorkerFenceToken } from "../worker-fence"
 
 export type RunError =
   | LLMError
@@ -22,6 +23,7 @@ export interface Interface {
   readonly run: (input: {
     readonly sessionID: SessionSchema.ID
     readonly force: boolean
+    readonly workerFence?: WorkerFenceToken
   }) => Effect.Effect<void, RunError>
 }
 

@@ -49,7 +49,30 @@ export function resource(): { serviceName: string; serviceVersion: string; attri
 
 export function loggers() {
   if (!endpoint) return []
-  return [OtlpLogger.make({ url: `${endpoint}/v1/logs`, resource: resource(), headers })]
+  return [OtlpLogger.make({ url: signalUrl(endpoint, "logs"), resource: resource(), headers })]
+}
+
+export async function makeMetricReader(
+  input: {
+    readonly endpoint?: string
+    readonly headers?: Record<string, string>
+    readonly exportIntervalMillis?: number
+  } = {},
+) {
+  const target = input.endpoint ?? endpoint
+  if (!target) return undefined
+  const MetricsOTLP = await import("@opentelemetry/exporter-metrics-otlp-http")
+  const MetricsSdk = await import("@opentelemetry/sdk-metrics")
+  return new MetricsSdk.PeriodicExportingMetricReader({
+    exporter: new MetricsOTLP.OTLPMetricExporter({
+      url: signalUrl(target, "metrics"),
+      headers: input.headers ?? headers,
+    }),
+    exportIntervalMillis: Math.max(
+      1_000,
+      input.exportIntervalMillis ?? Number(process.env.OTEL_METRIC_EXPORT_INTERVAL ?? 60_000),
+    ),
+  })
 }
 
 export async function tracingLayer() {
@@ -59,6 +82,8 @@ export async function tracingLayer() {
   const SdkBase = await import("@opentelemetry/sdk-trace-base")
   const { AsyncLocalStorageContextManager } = await import("@opentelemetry/context-async-hooks")
   const { context } = await import("@opentelemetry/api")
+  const metricReader = await makeMetricReader()
+  if (metricReader === undefined) return Layer.empty
 
   // The Effect Node SDK does not register a global context manager, but the AI SDK uses it to parent spans.
   const manager = new AsyncLocalStorageContextManager()
@@ -69,11 +94,16 @@ export async function tracingLayer() {
     resource: resource(),
     spanProcessor: new SdkBase.BatchSpanProcessor(
       new OTLP.OTLPTraceExporter({
-        url: `${endpoint}/v1/traces`,
+        url: signalUrl(endpoint, "traces"),
         headers,
       }),
     ),
+    metricReader,
   }))
+}
+
+function signalUrl(base: string, signal: "logs" | "metrics" | "traces") {
+  return `${base.replace(/\/+$/, "")}/v1/${signal}`
 }
 
 export * as Otlp from "./otlp"

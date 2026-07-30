@@ -1,0 +1,293 @@
+{
+  "schemaVersion": 1,
+  "repository": "anomalyco/opencode",
+  "baseline": {
+    "tag": "v1.18.8",
+    "commit": "3c81a5d1ddceab377d9ad71c14899e6935333fdd",
+    "packageVersion": "1.18.8"
+  },
+  "observedCandidate": {
+    "tag": "v1.18.8",
+    "commit": "3c81a5d1ddceab377d9ad71c14899e6935333fdd",
+    "packageVersion": "1.18.8",
+    "publishedAt": "2026-07-28T06:07:54Z"
+  },
+  "sourceScopes": [
+    "packages/core/src",
+    "packages/schema/src",
+    "packages/opencode/src"
+  ],
+  "upstreamSeams": [
+    {
+      "name": "session-execution-service",
+      "path": "packages/core/src/session/execution.ts",
+      "anchors": [
+        "export * as SessionExecution",
+        "@opencode/v2/SessionExecution"
+      ]
+    },
+    {
+      "name": "prompt-admission-order",
+      "path": "packages/core/src/session/input.ts",
+      "anchors": [
+        "SessionEvent.PromptAdmitted",
+        "SessionEvent.Prompted"
+      ]
+    },
+    {
+      "name": "llm-event-publisher",
+      "path": "packages/core/src/session/runner/llm.ts",
+      "anchors": [
+        "EventV2.Service",
+        "createLLMEventPublisher"
+      ]
+    },
+    {
+      "name": "session-projector",
+      "path": "packages/core/src/session/projector.ts",
+      "anchors": [
+        "EventV2.Service",
+        "session-projector"
+      ]
+    },
+    {
+      "name": "session-event-schema",
+      "path": "packages/schema/src/session-event.ts",
+      "anchors": [
+        "session.next.prompted",
+        "session.next.tool.called"
+      ]
+    },
+    {
+      "name": "permission-events",
+      "path": "packages/schema/src/permission.ts",
+      "anchors": [
+        "permission.v2.asked",
+        "permission.v2.replied"
+      ]
+    },
+    {
+      "name": "tool-execution-hooks",
+      "path": "packages/opencode/src/session/tools.ts",
+      "anchors": [
+        "tool.execute.before",
+        "tool.execute.after"
+      ]
+    }
+  ],
+  "localSeams": [
+    {
+      "name": "workflow-sidecar",
+      "path": "packages/core/src/session/workflow.ts",
+      "anchors": [
+        "SessionWorkflow.bindComplexPrompt",
+        "session.next.workflow.bound"
+      ]
+    },
+    {
+      "name": "governance-sidecar",
+      "path": "packages/core/src/session/governance.ts",
+      "anchors": [
+        "SessionGovernance.recordSessionCreated",
+        "SessionGovernance.recordPromptPrompted"
+      ]
+    },
+    {
+      "name": "durable-worker-queue",
+      "path": "packages/core/src/session/worker-queue.ts",
+      "anchors": [
+        "@opencode/v2/SessionWorkerQueue",
+        "layerFromEnv"
+      ]
+    },
+    {
+      "name": "model-invocation-gateway",
+      "path": "packages/core/src/session/runner/model-invocation-gateway.ts",
+      "anchors": [
+        "ModelInvocationGateway",
+        "attempt"
+      ]
+    },
+    {
+      "name": "shadow-canary-executor",
+      "path": "packages/core/src/session/runner/shadow-canary-executor.ts",
+      "anchors": [
+        "startShadowCanaryExecutor",
+        "opencode_shadow_canary_breaker_open"
+      ]
+    },
+    {
+      "name": "shadow-canary-shared-breaker",
+      "path": "packages/core/src/session/runner/shadow-canary-breaker-store.ts",
+      "anchors": [
+        "makePostgresShadowCanaryBreakerStore",
+        "opencode.shadow.canary.breaker"
+      ]
+    },
+    {
+      "name": "saas-release-gate",
+      "path": "packages/core/src/database/postgres/release-gate.ts",
+      "anchors": [
+        "postgresReleaseProofIssues",
+        "SaaSCloudAcceptance"
+      ]
+    },
+    {
+      "name": "shadow-agent-run-projector",
+      "path": "packages/opencode/src/shadow-agent-run/projector.ts",
+      "anchors": [
+        "initShadowAgentRunProjector",
+        "provider.request.attempt"
+      ]
+    },
+    {
+      "name": "tool-governance-adapter",
+      "path": "packages/opencode/src/tool-governance/policy.ts",
+      "anchors": [
+        "evaluateToolGovernance",
+        "emitToolGovernanceDecision"
+      ]
+    },
+    {
+      "name": "extension-event-contract",
+      "path": "packages/schema/src/session-event.ts",
+      "anchors": [
+        "session.next.worker.scheduled",
+        "session.next.workflow.bound",
+        "session.next.tenant.bound",
+        "session.next.shadow.canary.dispatched"
+      ]
+    }
+  ],
+  "protectedUpstreamPaths": [
+    {
+      "path": "packages/core/src/session/execution.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/core/src/session/execution/local.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/core/src/session/input.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/core/src/session/projector.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/core/src/session/runner/llm.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/core/src/tool/registry.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/core/src/tool/tool.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/schema/src/session-event.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/schema/src/permission.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/opencode/src/permission/index.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/opencode/src/server/init-projectors.ts",
+      "severity": "blocker"
+    },
+    {
+      "path": "packages/opencode/src/session/tools.ts",
+      "severity": "review"
+    }
+  ],
+  "reviewResolutions": [],
+  "allowedModifiedFiles": [
+    "packages/core/src/database/database.ts",
+    "packages/core/src/database/migration.gen.ts",
+    "packages/core/src/database/schema.gen.ts",
+    "packages/core/src/event.ts",
+    "packages/core/src/event/sql.ts",
+    "packages/core/src/observability/otlp.ts",
+    "packages/core/src/session.ts",
+    "packages/core/src/session/execution.ts",
+    "packages/core/src/session/execution/local.ts",
+    "packages/core/src/session/input.ts",
+    "packages/core/src/session/message-updater.ts",
+    "packages/core/src/session/projector.ts",
+    "packages/core/src/session/runner/index.ts",
+    "packages/core/src/session/runner/llm.ts",
+    "packages/core/src/tool/registry.ts",
+    "packages/core/src/tool/tool.ts",
+    "packages/schema/src/session-event.ts",
+    "packages/opencode/src/permission/index.ts",
+    "packages/opencode/src/server/init-projectors.ts",
+    "packages/opencode/src/server/routes/instance/httpapi/api.ts",
+    "packages/opencode/src/server/routes/instance/httpapi/server.ts"
+  ],
+  "allowedAddedPaths": [
+    "packages/core/src/compatibility/upstream-baseline.ts",
+    "packages/core/src/database/backend.ts",
+    "packages/core/src/database/migration/20260728000100_postgres_replication_outbox.ts",
+    "packages/core/src/database/postgres-rls-migration.md",
+    "packages/core/src/observability/worker-queue-prometheus-proxy.ts",
+    "packages/core/src/observability/worker-queue-telemetry-export-smoke.ts",
+    "packages/core/src/session/execution/durable-worker.md",
+    "packages/core/src/session/execution/upstream-compatibility.md",
+    "packages/core/src/session/execution/upstream-v1-18-8-review.md",
+    "packages/core/src/session/governance.md",
+    "packages/core/src/session/governance.ts",
+    "packages/core/src/session/runner/model-invocation-gateway.md",
+    "packages/core/src/session/runner/model-invocation-gateway.ts",
+    "packages/core/src/session/runner/shadow-canary.md",
+    "packages/core/src/session/runner/shadow-canary.ts",
+    "packages/core/src/session/runner/shadow-canary-executor.md",
+    "packages/core/src/session/runner/shadow-canary-executor.ts",
+    "packages/core/src/session/runner/shadow-canary-breaker-store.ts",
+    "packages/core/src/session/runner/shadow-canary-p5.3.1.md",
+    "packages/core/src/session/worker-coordination-smoke.ts",
+    "packages/core/src/session/worker-coordination.ts",
+    "packages/core/src/session/worker-fence.ts",
+    "packages/core/src/session/worker-queue-smoke.ts",
+    "packages/core/src/session/worker-queue.ts",
+    "packages/core/src/session/workflow.md",
+    "packages/core/src/session/workflow.ts",
+    "packages/opencode/src/server/routes/instance/httpapi/groups/worker-queue-admin.ts",
+    "packages/opencode/src/server/routes/instance/httpapi/handlers/worker-queue-admin.ts"
+  ],
+  "allowedAddedPrefixes": [
+    "packages/core/src/database/postgres",
+    "packages/core/src/security",
+    "packages/opencode/src/shadow-agent-run",
+    "packages/opencode/src/tool-governance"
+  ],
+  "modifiedLineBudgets": {
+    "packages/core/src/database/database.ts": 28,
+    "packages/core/src/event/sql.ts": 36,
+    "packages/core/src/event.ts": 75,
+    "packages/core/src/observability/otlp.ts": 32,
+    "packages/core/src/session/execution/local.ts": 290,
+    "packages/core/src/session/execution.ts": 4,
+    "packages/core/src/session/input.ts": 27,
+    "packages/core/src/session/message-updater.ts": 18,
+    "packages/core/src/session/projector.ts": 18,
+    "packages/core/src/session/runner/index.ts": 2,
+    "packages/core/src/session/runner/llm.ts": 53,
+    "packages/core/src/session.ts": 18,
+    "packages/core/src/tool/registry.ts": 5,
+    "packages/core/src/tool/tool.ts": 2,
+    "packages/schema/src/session-event.ts": 440,
+    "packages/opencode/src/permission/index.ts": 12,
+    "packages/opencode/src/server/init-projectors.ts": 2,
+    "packages/opencode/src/server/routes/instance/httpapi/api.ts": 2,
+    "packages/opencode/src/server/routes/instance/httpapi/server.ts": 10
+  }
+}

@@ -34,6 +34,8 @@ import { SessionEvent } from "./session/event"
 import { SessionInput } from "./session/input"
 import { Snapshot } from "./snapshot"
 import { SessionRevert } from "./session/revert"
+import { SessionWorkflow } from "./session/workflow"
+import { SessionGovernance } from "./session/governance"
 import { Revert } from "@opencode-ai/schema/revert"
 import { FSUtil } from "./fs-util"
 import { SessionDurable } from "@opencode-ai/schema/durable-event-manifest"
@@ -168,6 +170,7 @@ export interface Interface {
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | SessionRunner.RunError>
   readonly interrupt: (sessionID: SessionSchema.ID) => Effect.Effect<void>
+  readonly replay: (sessionID: SessionSchema.ID) => Effect.Effect<ReadonlyArray<SessionEvent.DurableEvent>, NotFoundError>
   readonly revert: {
     readonly stage: (input: {
       sessionID: SessionSchema.ID
@@ -258,7 +261,9 @@ const layer = Layer.effect(
           )
         if (projected.type === "existing") return projected.session
         // TODO: Restore recorded sessions onto replacement synchronized workspaces in a future API slice.
-        return yield* result.get(sessionID).pipe(Effect.orDie)
+        const created = yield* result.get(sessionID).pipe(Effect.orDie)
+        yield* SessionGovernance.recordSessionCreated({ events, session: created })
+        return created
       }),
       get: Effect.fn("V2Session.get")(function* (sessionID) {
         const session = yield* store.get(sessionID)
@@ -379,6 +384,13 @@ const layer = Layer.effect(
             )
             if (!SessionInput.equivalent(admitted, expected))
               return yield* new PromptConflictError({ sessionID: input.sessionID, messageID })
+            yield* SessionWorkflow.bindComplexPrompt({
+              db,
+              events,
+              sessionID: admitted.sessionID,
+              messageID: admitted.id,
+              prompt,
+            })
             if (input.resume !== false) yield* execution.wake(admitted.sessionID)
             return admitted
           }),
@@ -430,6 +442,10 @@ const layer = Layer.effect(
       interrupt: Effect.fn("V2Session.interrupt")((sessionID) =>
         Effect.uninterruptible(execution.interrupt(sessionID)),
       ),
+      replay: Effect.fn("V2Session.replay")(function* (sessionID) {
+        yield* result.get(sessionID)
+        return yield* execution.replay(sessionID)
+      }),
       revert: {
         stage: Effect.fn("V2Session.revert.stage")(function* (input) {
           const session = yield* result.get(input.sessionID)

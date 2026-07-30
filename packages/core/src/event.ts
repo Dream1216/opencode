@@ -5,11 +5,12 @@ import { Event } from "@opencode-ai/schema/event"
 import type { Data, Definition, Payload } from "@opencode-ai/schema/event"
 import { and, asc, eq, gt, inArray } from "drizzle-orm"
 import { Database } from "./database/database"
-import { EventSequenceTable, EventTable } from "./event/sql"
+import { EventSequenceTable, EventTable, PostgresReplicationOutboxTable } from "./event/sql"
 import { Location } from "./location"
 import { makeGlobalNode } from "./effect/app-node"
 import { isDeepStrictEqual } from "node:util"
 import { Durable } from "@opencode-ai/schema/durable-event-manifest"
+import { replicationContextFromEnv } from "./database/postgres/replication-config"
 
 export const ID = Event.ID
 export type ID = import("@opencode-ai/schema/event").ID
@@ -180,6 +181,45 @@ export const layerWith = (options?: LayerOptions) =>
       // TODO: Bind durable projectors to exact type+version before supporting incompatible historical payloads.
       const listeners = new Array<Subscriber>()
       const { db } = yield* Database.Service
+      const replication = replicationContextFromEnv()
+
+      function enqueueReplication(input: {
+        readonly id: string
+        readonly operation: "append" | "claim" | "remove"
+        readonly eventID?: string
+        readonly aggregateID: string
+        readonly seq?: number
+        readonly type?: string
+        readonly data?: Record<string, unknown>
+        readonly ownerID?: string
+      }) {
+        if (replication === undefined) return Effect.void
+        const now = Date.now()
+        return db
+          .insert(PostgresReplicationOutboxTable)
+          .values([
+            {
+              id: input.id,
+              operation: input.operation,
+              event_id: input.eventID ?? null,
+              tenant_id: replication.tenantID,
+              actor_id: replication.actorID,
+              aggregate_id: input.aggregateID,
+              seq: input.seq ?? null,
+              type: input.type ?? null,
+              data: input.data ?? null,
+              owner_id: input.ownerID ?? null,
+              status: "pending",
+              attempts: 0,
+              next_attempt_at: 0,
+              time_created: now,
+              time_updated: now,
+            },
+          ])
+          .onConflictDoNothing()
+          .run()
+          .pipe(Effect.orDie)
+      }
 
       const getOrCreate = (definition: Definition) =>
         Effect.gen(function* () {
@@ -346,6 +386,16 @@ export const layerWith = (options?: LayerOptions) =>
                             ])
                             .run()
                             .pipe(Effect.orDie)
+                          yield* enqueueReplication({
+                            id: `append:${event.id}`,
+                            operation: "append",
+                            eventID: event.id,
+                            aggregateID,
+                            seq,
+                            type: versionedType(definition.type, durable.version),
+                            data: encoded,
+                            ownerID: input?.ownerID,
+                          })
                           return { aggregateID, seq }
                         }),
                       { behavior: "immediate" },
@@ -517,6 +567,11 @@ export const layerWith = (options?: LayerOptions) =>
             Effect.gen(function* () {
               yield* db.delete(EventSequenceTable).where(eq(EventSequenceTable.aggregate_id, aggregateID)).run()
               yield* db.delete(EventTable).where(eq(EventTable.aggregate_id, aggregateID)).run()
+              yield* enqueueReplication({
+                id: `remove:${aggregateID}:${ID.create()}`,
+                operation: "remove",
+                aggregateID,
+              })
             }),
           )
           .pipe(Effect.orDie)
@@ -524,10 +579,21 @@ export const layerWith = (options?: LayerOptions) =>
 
       function claim(aggregateID: string, ownerID: string) {
         return db
-          .update(EventSequenceTable)
-          .set({ owner_id: ownerID })
-          .where(eq(EventSequenceTable.aggregate_id, aggregateID))
-          .run()
+          .transaction(() =>
+            Effect.gen(function* () {
+              yield* db
+                .update(EventSequenceTable)
+                .set({ owner_id: ownerID })
+                .where(eq(EventSequenceTable.aggregate_id, aggregateID))
+                .run()
+              yield* enqueueReplication({
+                id: `claim:${aggregateID}:${ID.create()}`,
+                operation: "claim",
+                aggregateID,
+                ownerID,
+              })
+            }),
+          )
           .pipe(Effect.orDie)
       }
 

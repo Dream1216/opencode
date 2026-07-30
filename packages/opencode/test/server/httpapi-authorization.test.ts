@@ -1,12 +1,14 @@
 import { NodeHttpServer } from "@effect/platform-node"
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Effect, Layer, Option, Schema } from "effect"
 import { HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
 import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiError, HttpApiGroup } from "effect/unstable/httpapi"
 import { ServerAuth } from "../../src/server/auth"
+import { isPublicSaasHealthProbe as isPublicServerSaasHealthProbe } from "@opencode-ai/server/middleware/authorization"
 import {
   Authorization,
   authorizationLayer,
+  isPublicSaasHealthProbe,
   ServerAuthorization,
   serverAuthorizationLayer,
 } from "../../src/server/routes/instance/httpapi/middleware/authorization"
@@ -68,6 +70,19 @@ const itV2Secret = testEffect(v2ApiLayer.pipe(Layer.provide(secretLayer)))
 const basic = (username: string, password: string) => ServerAuth.header({ username, password }) ?? ""
 
 const token = (username: string, password: string) => Buffer.from(`${username}:${password}`).toString("base64")
+
+describe("SaaS public health probes", () => {
+  test("allows only GET health endpoints", () => {
+    expect(isPublicSaasHealthProbe("GET", "/global/health")).toBe(true)
+    expect(isPublicSaasHealthProbe("GET", "/api/health?source=protocol-detection")).toBe(true)
+    expect(isPublicSaasHealthProbe("POST", "/global/health")).toBe(false)
+    expect(isPublicSaasHealthProbe("GET", "/global/config")).toBe(false)
+    expect(isPublicSaasHealthProbe("GET", "/api/model")).toBe(false)
+    expect(isPublicServerSaasHealthProbe("GET", "/api/health")).toBe(true)
+    expect(isPublicServerSaasHealthProbe("POST", "/api/health")).toBe(false)
+    expect(isPublicServerSaasHealthProbe("GET", "/api/model")).toBe(false)
+  })
+})
 
 const getProbe = (headers?: Record<string, string>) =>
   HttpClientRequest.get("/probe").pipe(

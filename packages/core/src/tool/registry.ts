@@ -12,12 +12,14 @@ import { ApplicationTools } from "./application-tools"
 import { definition, permission, settle, validateName, type AnyTool, type RegistrationError } from "./tool"
 import { Tools } from "./tools"
 import { makeLocationNode } from "../effect/app-node"
+import { toolWorkerFence, type WorkerFenceToken } from "../session/worker-fence"
 
 export type ExecuteInput = {
   readonly sessionID: SessionSchema.ID
   readonly agent: AgentV2.ID
   readonly assistantMessageID: SessionMessage.ID
   readonly call: ToolCall
+  readonly workerFence?: WorkerFenceToken
 }
 
 export interface Interface {
@@ -64,6 +66,9 @@ const registryLayer = Layer.effect(
         agent: input.agent,
         assistantMessageID: input.assistantMessageID,
         toolCallID: input.call.id,
+        ...(input.workerFence === undefined
+          ? {}
+          : { workerFence: toolWorkerFence(input.workerFence, input.call.id) }),
       }).pipe(
         Effect.map((output) => ({ output })),
         Effect.catchTag("LLM.ToolFailure", (failure) =>

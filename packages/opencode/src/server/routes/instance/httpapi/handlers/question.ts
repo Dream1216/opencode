@@ -4,10 +4,14 @@ import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 import { QuestionNotFoundError } from "../errors"
+import { SessionPrompt } from "@/session/prompt"
+import { Scope } from "effect"
 
 export const questionHandlers = HttpApiBuilder.group(InstanceHttpApi, "question", (handlers) =>
   Effect.gen(function* () {
     const svc = yield* Question.Service
+    const prompt = yield* SessionPrompt.Service
+    const scope = yield* Scope.Scope
 
     const list = Effect.fn("QuestionHttpApi.list")(function* () {
       return yield* svc.list()
@@ -17,7 +21,7 @@ export const questionHandlers = HttpApiBuilder.group(InstanceHttpApi, "question"
       params: { requestID: QuestionID }
       payload: Question.Reply
     }) {
-      yield* svc
+      const resolution = yield* svc
         .reply({
           requestID: ctx.params.requestID,
           answers: ctx.payload.answers,
@@ -32,6 +36,19 @@ export const questionHandlers = HttpApiBuilder.group(InstanceHttpApi, "question"
             ),
           ),
         )
+      if (resolution.recovered && resolution.request.tool)
+        yield* prompt
+          .loop({ sessionID: resolution.request.sessionID })
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logError("Unable to resume Session after recovered Question reply", {
+                requestID: resolution.request.id,
+                sessionID: resolution.request.sessionID,
+                cause,
+              }),
+            ),
+            Effect.forkIn(scope),
+          )
       return true
     })
 

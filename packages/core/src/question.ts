@@ -1,9 +1,13 @@
 export * as QuestionV2 from "./question"
 
 import { makeLocationNode } from "./effect/app-node"
-import { Context, Deferred, Effect, Layer, Schema } from "effect"
+import { Context, DateTime, Deferred, Effect, Layer, Schema } from "effect"
 import { Question } from "@opencode-ai/schema/question"
 import { EventV2 } from "./event"
+import { Location } from "./location"
+import { QuestionPersistence } from "./question-persistence"
+import { SessionEvent } from "./session/event"
+import { SessionMessage } from "./session/message"
 import { SessionSchema } from "./session/schema"
 
 export const ID = Question.ID
@@ -53,10 +57,28 @@ export interface ReplyInput {
   readonly answers: ReadonlyArray<Answer>
 }
 
+export interface Resolution {
+  readonly request: Request
+  readonly recovered: boolean
+}
+
+export const toModelOutput = (
+  questions: ReadonlyArray<Info>,
+  answers: ReadonlyArray<Answer>,
+) => {
+  const formatted = questions
+    .map(
+      (question, index) =>
+        `"${question.question}"="${answers[index]?.length ? answers[index].join(", ") : "Unanswered"}"`,
+    )
+    .join(", ")
+  return `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`
+}
+
 export interface Interface {
   readonly ask: (input: AskInput) => Effect.Effect<ReadonlyArray<Answer>, RejectedError>
-  readonly reply: (input: ReplyInput) => Effect.Effect<void, NotFoundError>
-  readonly reject: (requestID: ID) => Effect.Effect<void, NotFoundError>
+  readonly reply: (input: ReplyInput) => Effect.Effect<Resolution, NotFoundError>
+  readonly reject: (requestID: ID) => Effect.Effect<Resolution, NotFoundError>
   readonly list: () => Effect.Effect<ReadonlyArray<Request>>
 }
 
@@ -64,7 +86,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/v2
 
 interface Pending {
   readonly request: Request
-  readonly deferred: Deferred.Deferred<ReadonlyArray<Answer>, RejectedError>
+  deferred?: Deferred.Deferred<ReadonlyArray<Answer>, RejectedError>
 }
 
 /**
@@ -76,12 +98,21 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const events = yield* EventV2.Service
-    const pending = new Map<ID, Pending>()
+    const location = yield* Location.Service
+    const persistence = yield* QuestionPersistence.Service
+    const pending = new Map<ID, Pending>(
+      (yield* persistence.restore(location)).map((request) => [request.id, { request }]),
+    )
 
     yield* Effect.addFinalizer(() =>
-      Effect.forEach(pending.values(), (item) => Deferred.fail(item.deferred, new RejectedError()), {
-        discard: true,
-      }).pipe(
+      Effect.forEach(
+        pending.values(),
+        (item) =>
+          item.deferred ? Deferred.fail(item.deferred, new RejectedError()).pipe(Effect.asVoid) : Effect.void,
+        {
+          discard: true,
+        },
+      ).pipe(
         Effect.ensuring(
           Effect.sync(() => {
             pending.clear()
@@ -93,15 +124,30 @@ const layer = Layer.effect(
     const ask = Effect.fn("QuestionV2.ask")((input: AskInput) =>
       Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          const id = ID.ascending()
+          const tool = input.tool
+          const restored =
+            tool === undefined
+              ? undefined
+              : Array.from(pending.values()).find(
+                  (item) =>
+                    item.request.sessionID === input.sessionID &&
+                    item.request.tool?.messageID === tool.messageID &&
+                    item.request.tool?.callID === tool.callID,
+                )
+          const id = restored?.request.id ?? ID.ascending()
           const deferred = yield* Deferred.make<ReadonlyArray<Answer>, RejectedError>()
-          const request: Request = { id, ...input }
+          const request: Request = restored?.request ?? { id, ...input }
           pending.set(id, { request, deferred })
-          return yield* events.publish(Event.Asked, request).pipe(
-            Effect.andThen(restore(Deferred.await(deferred))),
+          if (!restored)
+            yield* events.publish(Event.Asked, {
+              ...request,
+              location: { directory: location.directory, workspaceID: location.workspaceID },
+            })
+          return yield* restore(Deferred.await(deferred)).pipe(
             Effect.ensuring(
               Effect.sync(() => {
-                pending.delete(id)
+                const current = pending.get(id)
+                if (current?.deferred === deferred) current.deferred = undefined
               }),
             ),
           )
@@ -114,13 +160,32 @@ const layer = Layer.effect(
         Effect.gen(function* () {
           const existing = pending.get(input.requestID)
           if (!existing) return yield* new NotFoundError({ requestID: input.requestID })
+          const recovered = existing.deferred === undefined
           yield* events.publish(Event.Replied, {
             sessionID: existing.request.sessionID,
             requestID: existing.request.id,
             answers: input.answers.map((answer) => [...answer]),
           })
-          yield* Deferred.succeed(existing.deferred, input.answers)
+          if (recovered && existing.request.tool) {
+            const text = toModelOutput(existing.request.questions, input.answers)
+            yield* events.publish(SessionEvent.Tool.Success, {
+              sessionID: existing.request.sessionID,
+              timestamp: yield* DateTime.now,
+              assistantMessageID: SessionMessage.ID.make(existing.request.tool.messageID),
+              callID: existing.request.tool.callID,
+              structured: { answers: input.answers.map((answer) => [...answer]) },
+              content: [{ type: "text", text }],
+              result: { type: "text", value: text },
+              provider: { executed: false },
+            })
+            yield* events.publish(Event.RecoveryRequested, {
+              sessionID: existing.request.sessionID,
+              requestID: existing.request.id,
+            })
+          }
+          if (existing.deferred) yield* Deferred.succeed(existing.deferred, input.answers)
           pending.delete(input.requestID)
+          return { request: existing.request, recovered }
         }),
       ),
     )
@@ -130,12 +195,23 @@ const layer = Layer.effect(
         Effect.gen(function* () {
           const existing = pending.get(requestID)
           if (!existing) return yield* new NotFoundError({ requestID })
+          const recovered = existing.deferred === undefined
           yield* events.publish(Event.Rejected, {
             sessionID: existing.request.sessionID,
             requestID: existing.request.id,
           })
-          yield* Deferred.fail(existing.deferred, new RejectedError())
+          if (recovered && existing.request.tool)
+            yield* events.publish(SessionEvent.Tool.Failed, {
+              sessionID: existing.request.sessionID,
+              timestamp: yield* DateTime.now,
+              assistantMessageID: SessionMessage.ID.make(existing.request.tool.messageID),
+              callID: existing.request.tool.callID,
+              error: { type: "unknown", message: "Question dismissed after service restart" },
+              provider: { executed: false },
+            })
+          if (existing.deferred) yield* Deferred.fail(existing.deferred, new RejectedError())
           pending.delete(requestID)
+          return { request: existing.request, recovered }
         }),
       ),
     )
@@ -150,4 +226,8 @@ const layer = Layer.effect(
 
 export const locationLayer = layer
 
-export const node = makeLocationNode({ service: Service, layer, deps: [EventV2.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [EventV2.node, Location.node, QuestionPersistence.node],
+})

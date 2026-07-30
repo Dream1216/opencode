@@ -15,6 +15,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { AppProcess } from "@opencode-ai/core/process"
 import { ProjectV2 } from "@opencode-ai/core/project"
+import { SaasIdentity } from "@opencode-ai/core/identity/saas-auth"
+import { Hash } from "@opencode-ai/core/util/hash"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
@@ -214,10 +216,20 @@ const layer = Layer.effect(
       yield* Effect.logInfo("fromDirectory", { directory })
 
       const data = yield* projectV2.resolve(AbsolutePath.make(directory))
-      const worktree = data.id === ProjectV2.ID.make("global") && !data.vcs ? "/" : data.directory
-
       // Phase 2: upsert
-      const projectID = ProjectV2.ID.make(data.id)
+      const unresolvedGlobal = data.id === ProjectV2.ID.global
+      const scopedGlobal = unresolvedGlobal && SaasIdentity.enabled()
+      const openedDirectory = AbsolutePath.make(FSUtil.resolve(directory))
+      const projectID =
+        scopedGlobal
+          ? ProjectV2.ID.make(Hash.fast(`saas-directory:${openedDirectory}`))
+          : ProjectV2.ID.make(data.id)
+      const worktree =
+        unresolvedGlobal && !data.vcs && !scopedGlobal
+          ? AbsolutePath.make("/")
+          : scopedGlobal
+            ? openedDirectory
+            : data.directory
       yield* migrateProjectId(data.previous ? ProjectV2.ID.make(data.previous) : undefined, projectID)
       const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, projectID)).get().pipe(Effect.orDie)
       const existing = row
@@ -303,7 +315,7 @@ const layer = Layer.effect(
       })
 
       yield* emitUpdated(result)
-      if (projectID !== ProjectV2.ID.global && data.vcs?.type === "git") {
+      if (data.id !== ProjectV2.ID.global && data.vcs?.type === "git") {
         yield* projectV2.commit({ store: data.vcs.store, id: data.id })
       }
       return { project: result, sandbox: data.vcs ? data.directory : worktree }

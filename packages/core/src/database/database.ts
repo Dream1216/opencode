@@ -1,7 +1,7 @@
 export * as Database from "./database"
 
 import { EffectDrizzleSqlite } from "@opencode-ai/effect-drizzle-sqlite"
-import { layer as sqliteLayer } from "#sqlite"
+import { layer as sqliteDriverLayer } from "#sqlite"
 import { Context, Effect, Layer } from "effect"
 import { Global } from "../global"
 import { Flag } from "../flag/flag"
@@ -9,6 +9,8 @@ import { isAbsolute, join } from "path"
 import { DatabaseMigration } from "./migration"
 import { InstallationChannel } from "../installation/version"
 import { makeGlobalNode } from "../effect/app-node"
+import { DatabaseBackend } from "./backend"
+import { PostgresDatabase } from "./postgres"
 
 const makeDatabase = EffectDrizzleSqlite.makeWithDefaults()
 type DatabaseShape = Effect.Success<typeof makeDatabase>
@@ -19,7 +21,7 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/storage/Database") {}
 
-const layer = Layer.effect(
+const sqliteServiceLayer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const db = yield* makeDatabase
@@ -37,7 +39,26 @@ const layer = Layer.effect(
 )
 
 export function layerFromPath(filename: string) {
-  return layer.pipe(Layer.provide(sqliteLayer({ filename })))
+  return sqliteServiceLayer.pipe(Layer.provide(sqliteDriverLayer({ filename })))
+}
+
+export function layerFromBackend(config = DatabaseBackend.fromEnv(path)) {
+  switch (config.type) {
+    case "sqlite":
+      return layerFromPath(config.filename)
+    case "postgres":
+      return Layer.effect(Service, Effect.die(PostgresDatabase.unavailableMessage(config)))
+    case "postgres-alpha":
+      return Layer.unwrap(
+        Effect.tryPromise({
+          try: () => PostgresDatabase.assertAlphaStartup(config),
+          catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+        }).pipe(
+          Effect.orDie,
+          Effect.as(layerFromPath(config.filename)),
+        ),
+      )
+  }
 }
 
 export function path() {
@@ -54,4 +75,4 @@ export function path() {
   return join(Global.Path.data, `opencode-${InstallationChannel.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`)
 }
 
-export const node = makeGlobalNode({ service: Service, layer: layerFromPath(path()), deps: [] })
+export const node = makeGlobalNode({ service: Service, layer: layerFromBackend(), deps: [] })

@@ -33,12 +33,15 @@ import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
 import { SessionRunnerModel } from "./model"
+import { ModelInvocationGateway } from "./model-invocation-gateway"
 import { createLLMEventPublisher } from "./publish-llm-event"
 import { toLLMMessages } from "./to-llm-message"
 import { MAX_STEPS_PROMPT } from "./max-steps"
 import { Snapshot } from "../../snapshot"
 import { makeLocationNode } from "../../effect/app-node"
 import { llmClient } from "../../effect/app-node-platform"
+import { SessionWorkerCoordination } from "../worker-coordination"
+import type { WorkerFenceToken } from "../worker-fence"
 
 /**
  * Runs one durable coding-agent Session until it settles.
@@ -105,8 +108,10 @@ const layer = Layer.effect(
     const referenceGuidance = yield* ReferenceGuidance.Service
     const config = yield* Config.Service
     const snapshots = yield* Snapshot.Service
+    const workerCoordination = yield* SessionWorkerCoordination.Service
     const db = (yield* Database.Service).db
     const compaction = SessionCompaction.make({ events, llm, config: yield* config.entries() })
+    const modelGateway = ModelInvocationGateway.make({ events, llm })
     const getSession = Effect.fn("SessionRunner.getSession")(function* (sessionID: SessionSchema.ID) {
       const session = yield* store.get(sessionID)
       if (!session) return yield* Effect.die(`Session not found: ${sessionID}`)
@@ -174,8 +179,10 @@ const layer = Layer.effect(
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       step: number,
+      workerFence: WorkerFenceToken | undefined,
       recoverOverflow?: typeof compaction.compactAfterOverflow,
     ) {
+      yield* workerCoordination.assertExecutionFence(workerFence)
       const session = yield* getSession(sessionID)
       if (session.location.directory !== location.directory || session.location.workspaceID !== location.workspaceID)
         return yield* Effect.interrupt
@@ -215,23 +222,31 @@ const layer = Layer.effect(
       if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request }))
         return yield* Effect.die(continueAfterCompaction(currentStep))
       const startSnapshot = yield* snapshots.capture()
+      const modelRef = {
+        id: ModelV2.ID.make(model.id),
+        providerID: ProviderV2.ID.make(model.provider),
+        ...(session.model?.variant === undefined ? {} : { variant: session.model.variant }),
+      }
       const publisher = createLLMEventPublisher(events, {
         sessionID: session.id,
         agent: agent.id,
-        model: {
-          id: ModelV2.ID.make(model.id),
-          providerID: ProviderV2.ID.make(model.provider),
-          ...(session.model?.variant === undefined ? {} : { variant: session.model.variant }),
-        },
+        model: modelRef,
         snapshot: startSnapshot,
+      })
+      const invocation = yield* modelGateway.start({
+        sessionID: session.id,
+        agent: agent.id,
+        model: modelRef,
+        request,
       })
       const withPublication = Semaphore.makeUnsafe(1).withPermit
       const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = []) =>
         withPublication(publisher.publish(event, outputPaths))
       let overflowFailure: ProviderErrorEvent | undefined
-      const providerStream = llm.stream(request).pipe(
+      const providerStream = invocation.stream().pipe(
         Stream.runForEach((event) =>
           Effect.gen(function* () {
+            yield* withPublication(invocation.observe(event))
             if (overflowFailure || publisher.hasProviderError()) return
             if (LLMEvent.is.providerError(event)) {
               if (isContextOverflowFailure(event) && !publisher.hasAssistantStarted()) {
@@ -246,6 +261,7 @@ const layer = Layer.effect(
               return
             }
             needsContinuation = true
+            yield* workerCoordination.assertExecutionFence(workerFence)
             const assistantMessageID = yield* publisher.assistantMessageID(event.id)
             yield* Effect.uninterruptibleMask((restore) =>
               restore(
@@ -254,6 +270,7 @@ const layer = Layer.effect(
                   agent: agent.id,
                   assistantMessageID,
                   call: event,
+                  workerFence,
                 }),
               ).pipe(
                 Effect.flatMap((settlement) =>
@@ -279,6 +296,7 @@ const layer = Layer.effect(
           const stream = yield* restore(providerStream).pipe(Effect.exit)
           const failure =
             stream._tag === "Failure" ? Option.getOrUndefined(Cause.findErrorOption(stream.cause)) : undefined
+          if (stream._tag === "Failure") yield* withPublication(invocation.fail(failure ?? Cause.squash(stream.cause)))
           if (
             recoverOverflow &&
             !publisher.hasAssistantStarted() &&
@@ -328,7 +346,7 @@ const layer = Layer.effect(
                 timestamp: yield* DateTime.now,
                 assistantMessageID: yield* publisher.startAssistant(),
                 finish: stepSettlement.finish,
-                cost: 0,
+                cost: invocation.cost(),
                 tokens: stepSettlement.tokens,
                 snapshot: endSnapshot,
                 files,
@@ -339,6 +357,7 @@ const layer = Layer.effect(
             yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
           if (stream._tag === "Success" && !publisher.hasProviderError())
             yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
+          if (stream._tag === "Success" && !publisher.hasProviderError()) yield* withPublication(invocation.complete())
           if (stream._tag === "Failure") return yield* Effect.failCause(stream.cause)
           if (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause))
             return yield* Effect.failCause(settled.cause)
@@ -350,31 +369,32 @@ const layer = Layer.effect(
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       step: number,
+      workerFence: WorkerFenceToken | undefined,
     ) => Effect.Effect<{ readonly needsContinuation: boolean; readonly step: number }, RunError>
 
-    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step) {
-      return yield* runTurnAttempt(sessionID, promotion, step).pipe(
+    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step, workerFence) {
+      return yield* runTurnAttempt(sessionID, promotion, step, workerFence).pipe(
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
             if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
             if (defect.transition._tag === "ContinueAfterOverflowCompaction")
               return yield* Effect.die("Post-compaction provider attempt cannot recover another overflow")
             yield* Effect.yieldNow
-            return yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step)
+            return yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step, workerFence)
           }),
         ),
       )
     })
 
-    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step) {
-      return yield* runTurnAttempt(sessionID, promotion, step, compaction.compactAfterOverflow).pipe(
+    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step, workerFence) {
+      return yield* runTurnAttempt(sessionID, promotion, step, workerFence, compaction.compactAfterOverflow).pipe(
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
             if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
             yield* Effect.yieldNow
             if (defect.transition._tag === "ContinueAfterOverflowCompaction")
-              return yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step)
-            return yield* runTurn(sessionID, undefined, defect.transition.step)
+              return yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step, workerFence)
+            return yield* runTurn(sessionID, undefined, defect.transition.step, workerFence)
           }),
         ),
       )
@@ -383,7 +403,9 @@ const layer = Layer.effect(
     const run = Effect.fn("SessionRunner.run")(function* (input: {
       readonly sessionID: SessionSchema.ID
       readonly force: boolean
+      readonly workerFence?: WorkerFenceToken
     }) {
+      yield* workerCoordination.assertExecutionFence(input.workerFence)
       const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
       const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
       if (!input.force && !hasSteer && !hasQueue) return
@@ -394,7 +416,7 @@ const layer = Layer.effect(
         let needsContinuation = true
         let step = 1
         while (needsContinuation) {
-          const result = yield* runTurn(input.sessionID, promotion, step)
+          const result = yield* runTurn(input.sessionID, promotion, step, input.workerFence)
           needsContinuation = result.needsContinuation
           step = result.step + 1
           promotion = "steer"
@@ -428,5 +450,6 @@ export const node = makeLocationNode({
     Config.node,
     Snapshot.node,
     Database.node,
+    SessionWorkerCoordination.node,
   ],
 })

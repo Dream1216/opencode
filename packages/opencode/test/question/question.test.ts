@@ -10,6 +10,7 @@ import { SessionID } from "../../src/session/schema"
 import { testEffect } from "../lib/effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
+import { AbsolutePath } from "@opencode-ai/core/schema"
 
 const questionLayer = LayerNode.compile(LayerNode.group([Question.node, EventV2Bridge.node, CrossSpawnSpawner.node]))
 const it = testEffect(questionLayer)
@@ -31,7 +32,7 @@ const replyEffect = Effect.fn("QuestionTest.reply")(function* (input: {
   answers: ReadonlyArray<Question.Answer>
 }) {
   const question = yield* Question.Service
-  yield* question.reply(input)
+  return yield* question.reply(input)
 })
 
 const rejectEffect = Effect.fn("QuestionTest.reject")(function* (id: QuestionID) {
@@ -42,6 +43,115 @@ const rejectEffect = Effect.fn("QuestionTest.reject")(function* (id: QuestionID)
 afterEach(async () => {
   await disposeAllInstances()
 })
+
+lifecycle.live(
+  "restores a durable pending question after the instance state is recreated",
+  () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const fiber = yield* askEffect({
+        sessionID: SessionID.make("ses_restart_recovery"),
+        questions: [
+          {
+            question: "Recover after restart?",
+            header: "Recovery",
+            options: [
+              { label: "Yes", description: "Resume the pending question" },
+              { label: "No", description: "Do not resume" },
+            ],
+          },
+        ],
+      }).pipe(provideInstance(dir), Effect.forkScoped)
+
+      const [original] = yield* waitForPending(1).pipe(provideInstance(dir))
+      const originalContext = yield* Effect.gen(function* () {
+        return yield* InstanceRef
+      }).pipe(provideInstance(dir))
+      if (!originalContext) return yield* Effect.die(new Error("missing test instance"))
+      yield* InstanceStore.Service.use((store) => store.dispose(originalContext))
+      expect((yield* Fiber.await(fiber))._tag).toBe("Failure")
+
+      const restored = yield* listEffect.pipe(provideInstance(dir))
+      expect(restored.map((request) => request.id)).toEqual([original.id])
+
+      const resolution = yield* replyEffect({
+        requestID: original.id,
+        answers: [["Yes"]],
+      }).pipe(provideInstance(dir))
+      expect(resolution.recovered).toBe(true)
+      expect((yield* listEffect.pipe(provideInstance(dir))).length).toBe(0)
+
+      const recoveredContext = yield* Effect.gen(function* () {
+        return yield* InstanceRef
+      }).pipe(provideInstance(dir))
+      if (!recoveredContext) return yield* Effect.die(new Error("missing recovered test instance"))
+      yield* InstanceStore.Service.use((store) => store.dispose(recoveredContext))
+      expect((yield* listEffect.pipe(provideInstance(dir))).length).toBe(0)
+    }),
+)
+
+lifecycle.live(
+  "reply restores a durable question missing from the initialized pending cache",
+  () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const requestID = QuestionID.make("que_reply_cache_miss")
+      const sessionID = SessionID.make("ses_reply_cache_miss")
+      const questions = [
+        {
+          question: "Recover before reply?",
+          header: "Recovery",
+          options: [{ label: "Yes", description: "Recover the durable request" }],
+        },
+      ]
+
+      expect(yield* listEffect.pipe(provideInstance(dir))).toEqual([])
+      yield* EventV2Bridge.Service.use((events) =>
+        events.publish(Question.Event.Asked, {
+          id: requestID,
+          sessionID,
+          questions,
+          location: { directory: AbsolutePath.make(dir) },
+        }),
+      ).pipe(provideInstance(dir))
+
+      const resolution = yield* replyEffect({ requestID, answers: [["Yes"]] }).pipe(provideInstance(dir))
+
+      expect(resolution).toMatchObject({ recovered: true, request: { id: requestID, sessionID } })
+      expect(yield* listEffect.pipe(provideInstance(dir))).toEqual([])
+    }),
+)
+
+lifecycle.live(
+  "reject restores a durable question missing from the initialized pending cache",
+  () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const requestID = QuestionID.make("que_reject_cache_miss")
+      const sessionID = SessionID.make("ses_reject_cache_miss")
+
+      expect(yield* listEffect.pipe(provideInstance(dir))).toEqual([])
+      yield* EventV2Bridge.Service.use((events) =>
+        events.publish(Question.Event.Asked, {
+          id: requestID,
+          sessionID,
+          questions: [
+            {
+              question: "Recover before reject?",
+              header: "Recovery",
+              options: [{ label: "Dismiss", description: "Reject the durable request" }],
+            },
+          ],
+          location: { directory: AbsolutePath.make(dir) },
+        }),
+      ).pipe(provideInstance(dir))
+
+      const resolution = yield* Question.Service.use((svc) => svc.reject(requestID)).pipe(provideInstance(dir))
+
+      expect(resolution).toMatchObject({ recovered: true, request: { id: requestID, sessionID } })
+      expect(yield* listEffect.pipe(provideInstance(dir))).toEqual([])
+    }),
+)
 
 /** Reject all pending questions so dangling Deferred fibers don't hang the test. */
 const rejectAll = Effect.gen(function* () {

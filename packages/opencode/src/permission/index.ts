@@ -6,6 +6,7 @@ import { Deferred, Effect, Layer, Context } from "effect"
 import os from "os"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { emitToolGovernanceDecision, evaluateToolGovernance } from "@/tool-governance/policy"
 
 export const Event = PermissionV1.Event
 
@@ -67,6 +68,18 @@ const layer = Layer.effect(
     const ask = Effect.fn("Permission.ask")(function* (input: PermissionV1.AskInput) {
       const { approved, pending } = yield* InstanceState.get(state)
       const { ruleset, ...request } = input
+      const governance = evaluateToolGovernance(request)
+      yield* Effect.sync(() => emitToolGovernanceDecision(governance, request))
+      yield* Effect.logInfo("tool governance evaluated", {
+        sessionID: request.sessionID,
+        permission: request.permission,
+        patterns: request.patterns,
+        decision: governance,
+      })
+      if (governance.mode === "enforce" && governance.intent === "deny") {
+        return yield* new PermissionV1.DeniedError({ ruleset: [governance] })
+      }
+
       let needsAsk = false
 
       for (const pattern of request.patterns) {

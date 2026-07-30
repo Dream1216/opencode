@@ -61,6 +61,7 @@ import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { ProjectCopy } from "@opencode-ai/core/project/copy"
 import { PtyTicket } from "@opencode-ai/core/pty/ticket"
+import * as WorkerQueueAdmin from "@opencode-ai/core/database/postgres/worker-queue-admin"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionV2 } from "@opencode-ai/core/session"
@@ -79,8 +80,11 @@ import {
   ptyConnectAuthorizationLayer,
   serverAuthorizationLayer,
 } from "./middleware/authorization"
+import { saasAuthRoutes } from "./saas-auth"
+import { organizationRoutes } from "./organization"
 import { EventApi } from "./groups/event"
 import { PtyConnectApi } from "./groups/pty"
+import { WorkerQueueAdminApi } from "./groups/worker-queue-admin"
 import { eventHandlers } from "./handlers/event"
 import { configHandlers } from "./handlers/config"
 import { controlHandlers } from "./handlers/control"
@@ -88,6 +92,7 @@ import { controlPlaneHandlers } from "./handlers/control-plane"
 import { experimentalHandlers } from "./handlers/experimental"
 import { fileHandlers } from "./handlers/file"
 import { globalHandlers } from "./handlers/global"
+import { workerQueueAdminHandlers } from "./handlers/worker-queue-admin"
 import { instanceHandlers } from "./handlers/instance"
 import { mcpHandlers } from "./handlers/mcp"
 import { permissionHandlers } from "./handlers/permission"
@@ -115,6 +120,7 @@ import { corsVaryFix } from "./middleware/cors-vary"
 import { errorLayer } from "./middleware/error"
 import { fenceLayer } from "./middleware/fence"
 import { schemaErrorLayer } from "./middleware/schema-error"
+import { organizationExecutionRouterMiddleware } from "./middleware/organization-execution"
 
 export const context = Context.makeUnsafe<unknown>(new Map())
 
@@ -138,14 +144,21 @@ const httpApiAuthLayer = authorizationLayer.pipe(Layer.provide(ServerAuth.Config
 const ptyConnectHttpApiAuthLayer = ptyConnectAuthorizationLayer.pipe(Layer.provide(ServerAuth.Config.layer))
 const serverHttpApiAuthLayer = serverAuthorizationLayer.pipe(Layer.provide(ServerAuth.Config.layer))
 const workspaceRoutingLive = workspaceRoutingLayer.pipe(Layer.provide(Socket.layerWebSocketConstructorGlobal))
+const organizationExecutionLive = organizationExecutionRouterMiddleware.layer
 const rootApiRoutes = HttpApiBuilder.layer(RootHttpApi).pipe(
   Layer.provide([controlHandlers, controlPlaneHandlers, globalHandlers]),
+  Layer.provide(schemaErrorLayer),
+  Layer.provide(httpApiAuthLayer),
+)
+const workerQueueAdminRoutes = HttpApiBuilder.layer(WorkerQueueAdminApi).pipe(
+  Layer.provide(workerQueueAdminHandlers),
   Layer.provide(schemaErrorLayer),
   Layer.provide(httpApiAuthLayer),
 )
 const eventApiRoutes = HttpApiBuilder.layer(EventApi).pipe(
   Layer.provide(eventHandlers),
   Layer.provide([httpApiAuthLayer, workspaceRoutingLive, instanceContextLayer]),
+  Layer.provide(organizationExecutionLive),
 )
 const ptyConnectApiRoutes = HttpApiBuilder.layer(PtyConnectApi).pipe(
   Layer.provide(ptyConnectHandlers),
@@ -173,11 +186,13 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
 
 const instanceRoutes = instanceApiRoutes.pipe(
   Layer.provide([httpApiAuthLayer, workspaceRoutingLive, instanceContextLayer, schemaErrorLayer]),
+  Layer.provide(organizationExecutionLive),
 )
 const serverRoutes = HttpApiBuilder.layer(Api).pipe(
   Layer.provide(handlers),
   Layer.provide(PluginPtyEnvironment.layer),
   Layer.provide([serverHttpApiAuthLayer, v2SchemaErrorLayer]),
+  Layer.provide(organizationExecutionLive),
 )
 
 // `OpenApi.fromApi` is non-trivial; defer until /doc is actually hit so
@@ -266,6 +281,7 @@ const app = LayerNode.group([
   ProjectV2.node,
   ProjectCopy.node,
   PtyTicket.node,
+  WorkerQueueAdmin.node,
 ])
 
 export function createRoutes(
@@ -275,6 +291,9 @@ export function createRoutes(
 
   return Layer.mergeAll(
     rootApiRoutes,
+    saasAuthRoutes,
+    organizationRoutes,
+    workerQueueAdminRoutes,
     eventApiRoutes,
     ptyConnectApiRoutes,
     instanceRoutes,

@@ -96,6 +96,7 @@ const execution = Layer.effect(
       resume: coordinator.run,
       wake: coordinator.wake,
       interrupt: coordinator.interrupt,
+      replay: () => Effect.succeed([]),
     })
   }),
 ).pipe(Layer.provide(runnerLayer))
@@ -183,10 +184,16 @@ describe("SessionRunnerLLM recorded", () => {
       ).toEqual([
         "session.next.prompt.admitted.1",
         "session.next.prompted.1",
+        "session.next.rls.evaluated.1",
+        "session.next.audit.recorded.1",
+        "session.next.model.invocation.attempted.1",
         "session.next.step.started.1",
         "session.next.text.started.1",
         "session.next.text.ended.1",
+        "session.next.model.invocation.usage.1",
+        "session.next.model.invocation.usage.1",
         "session.next.step.ended.2",
+        "session.next.model.invocation.completed.1",
       ])
     }),
   )
