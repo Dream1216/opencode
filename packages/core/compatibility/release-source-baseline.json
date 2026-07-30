@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-30T08:29:56.899Z",
+  "generatedAt": "2026-07-30T09:17:55.446Z",
   "algorithm": "sha256",
   "exclusions": {
     "names": [
@@ -24,10 +24,10 @@
       ".tsbuildinfo"
     ]
   },
-  "fileCount": 6483,
+  "fileCount": 6484,
   "symlinkCount": 60,
-  "totalBytes": 127058320,
-  "treeDigest": "f73511ea3b1a047370b89782d2d99b1baf88a19bf6af3e196913f8686110337a",
+  "totalBytes": 127068702,
+  "treeDigest": "4f2146035b1998be2b72edbb479cca2dec9bd56574c2a8ca067c641e41002567",
   "entries": [
     {
       "path": ".dockerignore",
@@ -861,6 +861,13 @@
       "bytes": 1971,
       "executable": false,
       "sha256": "be03360e20d6cbc318a0509cce39a09d541c9560fb1e2cc0e63106cf7352500b"
+    },
+    {
+      "path": "docs/p7.7.2-tenant-partitioned-legacy-prompt-queue.md",
+      "type": "file",
+      "bytes": 1662,
+      "executable": false,
+      "sha256": "92176471d45c9f522ac68836dda93b32556bcef621e9810382a016f0867132a5"
     },
     {
       "path": "flake.lock",
@@ -12246,16 +12253,16 @@
     {
       "path": "packages/core/src/session/execution/durable-worker.md",
       "type": "file",
-      "bytes": 16158,
+      "bytes": 16709,
       "executable": false,
-      "sha256": "51b7fbbbaf20af9703e95a7484befa2a2ebd9a34e70093e1a29904cb643b2197"
+      "sha256": "accab110c7469021db5ca3c44ee6e600906c01d1df67477bcf7c2b746aa0889d"
     },
     {
       "path": "packages/core/src/session/execution/local.ts",
       "type": "file",
-      "bytes": 13916,
+      "bytes": 14058,
       "executable": false,
-      "sha256": "3ed85c64cf8bf445b0fdbd5f9a9e3c0d1d57387310134bc381886be9c6a9216a"
+      "sha256": "53248f76748f074f9b4fd79bdf0fede1643faeb33313c6ce7e51da996000278d"
     },
     {
       "path": "packages/core/src/session/execution/upstream-compatibility.md",
@@ -12505,16 +12512,16 @@
     {
       "path": "packages/core/src/session/worker-queue-smoke.ts",
       "type": "file",
-      "bytes": 3290,
+      "bytes": 5452,
       "executable": false,
-      "sha256": "c4fef38b4c70b75d8144c4bdf6a7576161b281f5a14ff55c19167ffc17800d4e"
+      "sha256": "acf4b7ad183d7473146f80ac36365fa26e3ec71bac0c4a77bb4e4abdc2d221d8"
     },
     {
       "path": "packages/core/src/session/worker-queue.ts",
       "type": "file",
-      "bytes": 6591,
+      "bytes": 10423,
       "executable": false,
-      "sha256": "3002c450e296c5b7f18bf7c2cf1f12980c6d09e698c9905caa948bf2178e1283"
+      "sha256": "52c4d6f58d47b8ad552a3b294b18524a5f414458e46da9ee53c3079037ba8e8e"
     },
     {
       "path": "packages/core/src/session/workflow.md",
@@ -20533,9 +20540,9 @@
     {
       "path": "packages/opencode/src/session/prompt.ts",
       "type": "file",
-      "bytes": 66769,
+      "bytes": 68802,
       "executable": false,
-      "sha256": "3f6de9e38a372f3f76c9dc070936abd6fc6e4b873cb52de5a32a86c3dae12365"
+      "sha256": "20f6d04014ed4ebcc16a1c7f8c4aa9d4e4ce53791e0cb48bec60b2dcd86a5e08"
     },
     {
       "path": "packages/opencode/src/session/prompt/anthropic.txt",

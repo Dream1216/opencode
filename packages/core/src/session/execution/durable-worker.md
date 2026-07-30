@@ -83,6 +83,14 @@ iteration validates the current fence, heartbeat loss interrupts the work, and
 the terminal path completes or releases the lease. This is deliberately not a
 second runner implementation.
 
+P7.7.2 adds a tenant-partitioned queue sidecar for the legacy Prompt path. The
+queue resolves each Session tenant from its PostgreSQL resource locator, returns
+generation `0` for unlisted tenants so they keep the local path, and polls only
+the configured tenant allowlist. `consumerMode=legacy-prompt` prevents the core
+V2 consumer from claiming legacy Prompt jobs. The winning consumer reloads the
+SQLite Session, acquires the PostgreSQL execution lease, runs the unchanged
+legacy loop, and atomically completes both the lease and queue generation.
+
 P4.34 adds tenant-scoped queue operations without exposing a new HTTP administration surface:
 
 - readiness and backlog metrics

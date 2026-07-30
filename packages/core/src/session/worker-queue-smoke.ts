@@ -12,6 +12,8 @@ export async function runWorkerQueueSmoke(sql: Sql, input: { readonly url: strin
   const tenantID = `tenant_worker_queue_${suffix}`
   const actorID = `actor_worker_queue_${suffix}`
   const sessionID = SessionSchema.ID.make(`ses_worker_queue_${suffix}`)
+  const sidecarSessionID = SessionSchema.ID.make(`ses_worker_queue_sidecar_${suffix}`)
+  const unlistedSessionID = SessionSchema.ID.make(`ses_worker_queue_unlisted_${suffix}`)
   const tenant = { tenantID, actorID }
   const env = {
     ...process.env,
@@ -68,8 +70,53 @@ export async function runWorkerQueueSmoke(sql: Sql, input: { readonly url: strin
     )
     if (disabled) throw new Error("Worker queue tenant allowlist did not disable the adapter")
     checks.push("queue-tenant-feature-flag-disabled")
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const queue = yield* Service
+        if (!queue.enabled || queue.consumerMode !== "legacy-prompt") {
+          return yield* Effect.die("SaaS legacy Prompt queue sidecar should be enabled")
+        }
+        const generation = yield* queue.enqueue(sidecarSessionID, "resume")
+        if (generation !== 1) return yield* Effect.die("SaaS queue did not enqueue the first generation")
+        const claim = yield* queue.claim()
+        if (claim?.runID !== sidecarSessionID || claim.tenantID !== tenantID) {
+          return yield* Effect.die("SaaS queue claimed the wrong tenant or Session")
+        }
+        yield* queue.complete(claim)
+        yield* queue.awaitCompletion(sidecarSessionID, generation)
+        checks.push("saas-queue-session-tenant-resolved")
+        checks.push("saas-queue-allowlisted-generation-completed")
+
+        const bypass = yield* queue.enqueue(unlistedSessionID, "resume")
+        if (bypass !== 0) return yield* Effect.die("Unlisted SaaS tenant was enqueued")
+        yield* queue.awaitCompletion(unlistedSessionID, bypass)
+        checks.push("saas-queue-unlisted-tenant-bypassed")
+      }).pipe(
+        Effect.provide(
+          layerFromEnv(
+            {
+              ...env,
+              OPENCODE_DATABASE_BACKEND: "sqlite",
+              OPENCODE_SAAS_MODE: "true",
+              OPENCODE_TENANT_ID: undefined,
+              OPENCODE_ACTOR_ID: undefined,
+              OPENCODE_POSTGRES_WORKER_COORDINATION_SAAS_SIDECAR: "1",
+              OPENCODE_POSTGRES_WORKER_QUEUE_SAAS_SIDECAR: "1",
+              OPENCODE_POSTGRES_WORKER_QUEUE_CONSUMER: "legacy-prompt",
+            },
+            {
+              resolveTenant: async (_sql, current) =>
+                current === sidecarSessionID ? tenant : { tenantID: "tenant_not_allowlisted" },
+            },
+          ),
+        ),
+        Effect.scoped,
+      ),
+    )
     return { status: "ok" as const, checks }
   } finally {
     await cleanupWorkerJob(sql, tenant, sessionID)
+    await cleanupWorkerJob(sql, tenant, sidecarSessionID)
   }
 }

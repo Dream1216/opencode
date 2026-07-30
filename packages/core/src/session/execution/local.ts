@@ -159,8 +159,8 @@ const layer = Layer.effect(
       yield* publishWorker.resumed(sessionID)
       yield* publishWorker.scheduled(sessionID, "resume")
       if (queue.enabled) {
-        yield* queue.enqueue(sessionID, "resume")
-        return
+        const generation = yield* queue.enqueue(sessionID, "resume")
+        if (generation > 0) return
       }
       yield* coordinator.run(sessionID)
     })
@@ -218,7 +218,7 @@ const layer = Layer.effect(
       yield* queue.fail(claim, failureMessage(exit.cause))
     })
 
-    if (queue.enabled) {
+    if (queue.consumerMode === "core") {
       yield* Effect.forkScoped(
         Effect.forever(
           Effect.gen(function* () {
@@ -247,16 +247,18 @@ const layer = Layer.effect(
         yield* publishWorker.scheduled(sessionID, "resume")
         if (queue.enabled) {
           const generation = yield* queue.enqueue(sessionID, "resume")
-          yield* queue.awaitCompletion(sessionID, generation)
-          return
+          if (generation > 0) {
+            yield* queue.awaitCompletion(sessionID, generation)
+            return
+          }
         }
         yield* coordinator.run(sessionID)
       }),
       wake: Effect.fn("SessionExecutionLocal.wake")(function* (sessionID) {
         yield* publishWorker.scheduled(sessionID, "wake")
         if (queue.enabled) {
-          yield* queue.enqueue(sessionID, "wake")
-          return
+          const generation = yield* queue.enqueue(sessionID, "wake")
+          if (generation > 0) return
         }
         yield* coordinator.wake(sessionID)
       }),

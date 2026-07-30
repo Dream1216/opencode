@@ -60,6 +60,7 @@ import {
   SessionWorkerCoordination,
   type Handle as WorkerCoordinationHandle,
 } from "@opencode-ai/core/session/worker-coordination"
+import * as SessionWorkerQueue from "@opencode-ai/core/session/worker-queue"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -145,6 +146,7 @@ const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
     const workerCoordination = yield* SessionWorkerCoordination.Service
+    const workerQueue = yield* SessionWorkerQueue.Service
     const { db } = database
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
@@ -156,6 +158,7 @@ const layer = Layer.effect(
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
       yield* Effect.logInfo("cancel", { "session.id": sessionID })
+      if (workerQueue.consumerMode === "legacy-prompt") yield* workerQueue.cancel(sessionID)
       yield* state.cancel(sessionID)
     })
 
@@ -1349,16 +1352,13 @@ const layer = Layer.effect(
       },
     )
 
-    const loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.loop")(function* (
-      input: LoopInput,
-    ) {
-      const work = Effect.gen(function* () {
-        const acquisition = yield* workerCoordination.acquire(input.sessionID)
-        if (acquisition.status === "disabled") return yield* runLoop(input.sessionID)
+    const runCoordinated = Effect.fn("SessionPrompt.runCoordinated")(function* (sessionID: SessionID) {
+        const acquisition = yield* workerCoordination.acquire(sessionID)
+        if (acquisition.status === "disabled") return yield* runLoop(sessionID)
         if (acquisition.status === "contended") {
           return yield* Effect.die(
             new Error(
-              `PostgreSQL worker lease for ${input.sessionID} is held by ${acquisition.lease.ownerID}`,
+              `PostgreSQL worker lease for ${sessionID} is held by ${acquisition.lease.ownerID}`,
             ),
           )
         }
@@ -1376,7 +1376,7 @@ const layer = Layer.effect(
           ),
         )
         const exit = yield* Effect.raceFirst(
-          runLoop(input.sessionID, () => handle),
+          runLoop(sessionID, () => handle),
           heartbeat,
         ).pipe(Effect.exit)
         if (Exit.isSuccess(exit)) {
@@ -1386,8 +1386,59 @@ const layer = Layer.effect(
         }
         yield* workerCoordination.release(handle).pipe(Effect.catchCause(() => Effect.void))
         return yield* Effect.failCause(exit.cause)
-      })
-      return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), work)
+    })
+
+    const processQueueClaim = Effect.fn("SessionPrompt.processQueueClaim")(function* (
+      claim: import("@opencode-ai/core/database/postgres/worker-job").WorkerJobClaim,
+    ) {
+      const sessionID = SessionID.make(claim.runID)
+      const run = state.ensureRunning(sessionID, lastAssistant(sessionID), runCoordinated(sessionID))
+      const heartbeat = Effect.forever(
+        Effect.sleep(workerQueue.heartbeatIntervalMs).pipe(
+          Effect.andThen(workerQueue.heartbeat(claim)),
+        ),
+      )
+      const exit = yield* Effect.raceFirst(run, heartbeat).pipe(Effect.exit)
+      if (Exit.isSuccess(exit)) {
+        yield* workerQueue.complete(claim)
+        return
+      }
+      yield* state.cancel(sessionID)
+      yield* workerQueue.fail(claim, Cause.pretty(exit.cause))
+    })
+
+    if (workerQueue.consumerMode === "legacy-prompt") {
+      yield* Effect.forkScoped(
+        Effect.forever(
+          Effect.gen(function* () {
+            const claim = yield* workerQueue.claim()
+            if (claim === undefined) return
+            yield* processQueueClaim(claim)
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logError(`PostgreSQL legacy Prompt queue consumer: ${Cause.pretty(cause)}`),
+            ),
+            Effect.andThen(Effect.sleep(workerQueue.pollIntervalMs)),
+          ),
+        ),
+      )
+    }
+
+    const loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.loop")(function* (
+      input: LoopInput,
+    ) {
+      if (workerQueue.consumerMode === "legacy-prompt") {
+        const generation = yield* workerQueue.enqueue(input.sessionID, "resume")
+        if (generation > 0) {
+          yield* workerQueue.awaitCompletion(input.sessionID, generation)
+          return yield* lastAssistant(input.sessionID)
+        }
+      }
+      return yield* state.ensureRunning(
+        input.sessionID,
+        lastAssistant(input.sessionID),
+        runCoordinated(input.sessionID),
+      )
     })
 
     const shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError> = Effect.fn(
@@ -1670,6 +1721,7 @@ export const node = LayerNode.make({
     RuntimeFlags.node,
     Database.node,
     SessionWorkerCoordination.node,
+    SessionWorkerQueue.node,
   ],
 })
 
