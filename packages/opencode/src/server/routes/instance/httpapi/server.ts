@@ -225,6 +225,8 @@ type RouteRequirements =
   | HttpRouter.Request<"Requires", unknown>
   | HttpRouter.Request<"GlobalRequires", never>
 
+const workerRecoveryLifecycle = Layer.effectDiscard(SessionWorkerRecovery.Service)
+
 const app = LayerNode.group([
   Npm.node,
   FSUtil.node,
@@ -293,6 +295,7 @@ export function createRoutes(
 
   return Layer.mergeAll(
     rootApiRoutes,
+    workerRecoveryLifecycle,
     saasAuthRoutes,
     organizationRoutes,
     workerQueueAdminRoutes,
